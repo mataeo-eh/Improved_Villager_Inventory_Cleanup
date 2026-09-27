@@ -3,40 +3,39 @@
 //
 // Role in the larger system
 // -------------------------
-// This is a test fallback. It exists to prove that cleanup itself works,
+// This is a test mode. It exists to prove that cleanup itself works,
 // independently of whether any storage has room: if items pile up at the Eye,
-// the scan picked them and the villager acted on it.
+// the scan picked them and the villager acted on them.
 //
-// How it rides on vanilla (read from the game binary with scripts/disasm.ps1):
-// after the scan picks an item, FSM_CleanupInventory.OnStateUpdate calls
-// Settlement.FindStorageToDeposit up to twice. If both come back empty, it sets
-// CleanupInventoryData.workstationTransform to the villager's workstation, then
-// on later ticks walks the villager to that transform and drops the item on
-// the ground once within minimumDistance. We reuse that whole path and only:
+// How the cleanup FSM chooses a destination (read from the game binary with
+// scripts/disasm.ps1, FSM_CleanupInventory.OnStateUpdate):
 //
-//   1. make FindStorageToDeposit return nothing during a cleanup update
-//      (ForceEyeOfOdinDrops), so every item goes down the ground-drop path;
-//   2. swap workstationTransform for a marker placed in front of the Eye of
-//      Odin, in the same update that vanilla set it, whenever no storage was
-//      found (whether forced by 1, or because storage really had no room).
+//   1. If the villager's workstation is itself a storage site, ask it for a
+//      slot, filtering with CleanupInventoryData.StorageToDropIntoPredicate.
+//      In the 0.3.0 test this is where every deposit happened, which is why
+//      0.3.0's force mode (which only blocked step 2) never took effect.
+//   2. Otherwise Settlement.FindStorageToDeposit, twice, filtering with
+//      CleanupInventoryData.ResourceStoragePredicate.
+//   3. If both fail: walk to a fallback transform (the quest's workstation)
+//      and drop the item on the ground there.
 //
-// Known gaps, all logged so a test run shows them:
-//   - vanilla throws when a villager with no workstation finds no storage, so
-//     forcing is skipped for villagers without a workstation;
-//   - for some Buildstation villagers vanilla drops the item where they stand
-//     instead of walking; the swapped transform is then unused.
+// Force mode makes both predicates refuse every storage, so every pick goes to
+// step 3. CleanupWatcher then swaps step 3's walk target for a point in front
+// of the Eye of Odin.
+//
+// Known gap: for some Buildstation (builder) quests, vanilla's step 3 drops the
+// item where the villager stands instead of walking. The drop still happens,
+// just not at the Eye.
 //
 // The Eye of Odin is taken to be the settlement core (Settlement._settlementCore),
 // the structure that founds a settlement. Its name is logged when first found
 // so a test run confirms that.
 //
-// Depends on: HarmonyLib, Plugin (config), CleanupScanContext, DiagnosticLog,
-// GameDescribe, UnityEngine.
+// Depends on: HarmonyLib, Plugin (config), DiagnosticLog, UnityEngine.
 
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
-using ImprovedVillagerInventoryCleanup.Behaviour;
 using ImprovedVillagerInventoryCleanup.Diagnostics;
 using SSSGame;
 using SSSGame.AI.FSM;
@@ -61,7 +60,7 @@ internal static class EyeOfOdinDropPoint
     /// Returns a transform standing EyeOfOdinStandOffDistance metres in front of
     /// the villager's settlement core, creating or moving the marker as needed.
     /// Returns null when the villager has no settlement or it has no core.
-    /// Called by: CleanupOnStateUpdatePatch.Postfix.
+    /// Called by: Behaviour.CleanupWatcher.TryRedirect.
     /// </summary>
     /// <param name="villager">The villager about to walk there.</param>
     /// <returns>The marker's transform, or null if there is no Eye of Odin.</returns>
@@ -95,103 +94,58 @@ internal static class EyeOfOdinDropPoint
     }
 }
 
+
 /// <summary>
-/// Opens and closes the per-update context, and after the update redirects the
-/// villager's ground-drop walk to the Eye of Odin when no storage was found.
+/// Decides whether force mode applies to a villager. Villagers without a
+/// workstation are left on vanilla behaviour, because vanilla's step 3 has
+/// nowhere to walk them.
 /// </summary>
-[HarmonyPatch(typeof(FSM_CleanupInventory), nameof(FSM_CleanupInventory.OnStateUpdate))]
-internal static class CleanupOnStateUpdatePatch
+internal static class ForceEyeOfOdin
 {
-    private static void Prefix() => CleanupScanContext.BeginUpdate();
-
     /// <summary>
-    /// If this update scanned the inventory, picked an item, searched for
-    /// storage and found none, then vanilla has just pointed
-    /// workstationTransform at the villager's workstation. Point it at the Eye
-    /// of Odin instead.
-    /// Calls: EyeOfOdinDropPoint.Get, CleanupScanContext.EndUpdate.
+    /// True when force mode is on and this villager can use the ground-drop
+    /// path. Never throws.
+    /// Called by: the two storage predicate postfixes below.
     /// </summary>
-    private static void Postfix()
+    /// <param name="data">The villager's cleanup FSM state.</param>
+    internal static bool AppliesTo(FSM_CleanupInventory.CleanupInventoryData data)
     {
-        var data = CleanupScanContext.ScannedData;
-        var searches = CleanupScanContext.StorageSearches;
-        var storageFound = CleanupScanContext.StorageFound;
-        CleanupScanContext.EndUpdate();
-
-        if (data == null || searches == 0 || storageFound) return;
-        if (!Plugin.EyeOfOdinFallback.Value && !Plugin.ForceEyeOfOdinDrops.Value) return;
-
+        if (!Plugin.ForceEyeOfOdinDrops.Value || data == null) return false;
         try
         {
-            var item = data.itemToDrop;
-            var previousTarget = data.workstationTransform;
-            if (item == null || previousTarget == null) return;
-
-            var villager = data.agent;
-            var marker = EyeOfOdinDropPoint.Get(villager);
-            if (marker == null)
-            {
-                DiagnosticLog.Write("eye_of_odin_unavailable",
-                    $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(item)}");
-                return;
-            }
-            if (previousTarget.Pointer == marker.Pointer) return;
-
-            data.workstationTransform = marker;
-            DiagnosticLog.Write("eye_of_odin_redirect",
-                $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(item)} " +
-                $"forced={Plugin.ForceEyeOfOdinDrops.Value} replaced_target={DiagnosticLog.Quote(previousTarget.name)}");
+            return data.agent?.GetWorkstation() != null;
         }
-        catch (Exception exception)
+        catch
         {
-            DiagnosticLog.WriteException("eye_of_odin_redirect_failed", exception);
+            return false;
         }
     }
 }
 
 /// <summary>
-/// Hides every storage from the cleanup FSM when ForceEyeOfOdinDrops is on, and
-/// records whether a storage was found either way.
+/// Force mode, step 1: the villager's own workstation storage refuses.
+/// Runs before the diagnostic postfix, so the log shows the forced answer.
 /// </summary>
-/// <remarks>
-/// FindStorageToDeposit is also used by hauling and other jobs. The patch acts
-/// only between the OnStateUpdate prefix and postfix of the cleanup FSM, after
-/// that update has scanned an inventory.
-/// </remarks>
-[HarmonyPatch(typeof(Settlement), nameof(Settlement.FindStorageToDeposit))]
-internal static class CleanupFindStoragePatch
+[HarmonyPatch(typeof(FSM_CleanupInventory.CleanupInventoryData), nameof(FSM_CleanupInventory.CleanupInventoryData.StorageToDropIntoPredicate))]
+internal static class ForceStorageToDropIntoPatch
 {
-    /// <summary>
-    /// Skips the search (returning no storage) while forcing is on. Villagers
-    /// with no workstation are left alone, because vanilla throws when such a
-    /// villager finds no storage.
-    /// </summary>
-    /// <param name="__result">Set to null when the search is skipped.</param>
-    /// <returns>False to skip the vanilla search, true to run it.</returns>
-    private static bool Prefix(ref Interaction __result)
+    [HarmonyPriority(Priority.High)]
+    private static void Postfix(FSM_CleanupInventory.CleanupInventoryData __instance, ref bool __result)
     {
-        var data = CleanupScanContext.ScannedData;
-        if (!CleanupScanContext.InUpdate || data == null) return true;
-        if (!Plugin.ForceEyeOfOdinDrops.Value) return true;
-
-        try
-        {
-            if (data.agent?.GetWorkstation() == null) return true;
-        }
-        catch
-        {
-            return true;
-        }
-
-        __result = null;
-        return false;
+        if (__result && ForceEyeOfOdin.AppliesTo(__instance)) __result = false;
     }
+}
 
-    /// <summary>Records the outcome of a cleanup storage search.</summary>
-    /// <param name="__result">The storage found, or null.</param>
-    private static void Postfix(Interaction __result)
+/// <summary>
+/// Force mode, step 2: settlement storages refuse.
+/// Runs before the diagnostic postfix, so the log shows the forced answer.
+/// </summary>
+[HarmonyPatch(typeof(FSM_CleanupInventory.CleanupInventoryData), nameof(FSM_CleanupInventory.CleanupInventoryData.ResourceStoragePredicate))]
+internal static class ForceResourceStoragePatch
+{
+    [HarmonyPriority(Priority.High)]
+    private static void Postfix(FSM_CleanupInventory.CleanupInventoryData __instance, ref bool __result)
     {
-        if (!CleanupScanContext.InUpdate || CleanupScanContext.ScannedData == null) return;
-        CleanupScanContext.NoteStorageSearch(__result != null);
+        if (__result && ForceEyeOfOdin.AppliesTo(__instance)) __result = false;
     }
 }

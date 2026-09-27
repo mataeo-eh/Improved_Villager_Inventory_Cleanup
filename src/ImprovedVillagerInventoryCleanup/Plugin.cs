@@ -16,7 +16,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "aska.improved.villager.inventory.cleanup";
     public const string PluginName = "Improved Villager Inventory Cleanup";
-    public const string PluginVersion = "0.3.0";
+    public const string PluginVersion = "0.4.0";
 
     internal static new ManualLogSource Log { get; private set; }
     internal static ConfigEntry<float> TrackingWindowSeconds { get; private set; }
@@ -35,6 +35,11 @@ public sealed class Plugin : BasePlugin
     internal static ConfigEntry<bool> EyeOfOdinFallback { get; private set; }
     internal static ConfigEntry<bool> ForceEyeOfOdinDrops { get; private set; }
     internal static ConfigEntry<float> EyeOfOdinStandOffDistance { get; private set; }
+
+    // Test tool: the "Clean inventory now" button in the villager menu.
+    internal static ConfigEntry<bool> ShowCleanupButton { get; private set; }
+    internal static ConfigEntry<float> CleanupButtonX { get; private set; }
+    internal static ConfigEntry<float> CleanupButtonY { get; private set; }
 
     private Harmony _harmony;
 
@@ -75,6 +80,14 @@ public sealed class Plugin : BasePlugin
         EyeOfOdinStandOffDistance = Config.Bind("EyeOfOdin", "StandOffDistance", 4f,
             "How many metres in front of the Eye of Odin villagers stand to drop items. " +
             "Use a negative value if they end up behind it.");
+
+        ShowCleanupButton = Config.Bind("TestTools", "ShowCleanupButton", true,
+            "Show a 'Clean inventory now' button while a villager's menu is open. Clicking it starts that " +
+            "villager's cleanup quest immediately, the same way a job change does.");
+        CleanupButtonX = Config.Bind("TestTools", "CleanupButtonX", 0.5f,
+            "Horizontal centre of the button, as a fraction of screen width (0 = left edge, 1 = right edge).");
+        CleanupButtonY = Config.Bind("TestTools", "CleanupButtonY", 0.04f,
+            "Top of the button, as a fraction of screen height (0 = top edge, 1 = bottom edge).");
         DiagnosticLog.Initialize();
         try
         {

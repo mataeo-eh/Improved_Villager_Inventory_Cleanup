@@ -50,6 +50,28 @@ Some earlier conclusions turned out to be wrong:
   vanilla's "no storage found, walk somewhere and drop it" path, and only changes
   the destination.
 
+## What 0.4.0 changes
+
+The 0.3.0 test showed that the core fix works: stale tools were deposited, and
+job tools were kept. It also showed three problems, all addressed here:
+
+- **Force mode now takes effect.** The cleanup FSM first asks the villager's
+  own workstation storage for a slot (`StorageToDropIntoPredicate`), and only
+  then searches the settlement (`ResourceStoragePredicate`). In force mode both
+  predicates now refuse, so every pick goes down the ground-drop path. 0.3.0
+  only blocked the settlement search, so everything went into workstation
+  storage.
+- **The redirect no longer depends on hooking the FSM update.**
+  `CleanupWatcher` reads each villager's cleanup state once per frame. It logs
+  every decision (`cleanup_state`), redirects ground drops to the Eye, and
+  reports villagers stuck on one item for 30 s (`cleanup_stalled`).
+- **"Clean inventory now" button.** It appears at the top of the screen while a
+  villager's menu is open. Clicking it does exactly what the game does on a job
+  change: it sets `CleanupRequested` and `Important`, then calls
+  `QuestRunner.ReevaluateQuest`. This is needed because vanilla only asks for a
+  cleanup on a job, schedule or viking-status change, and an interrupted run
+  loses its request.
+
 ## Configuration
 
 | Section | Key | Default | Purpose |
@@ -60,6 +82,8 @@ Some earlier conclusions turned out to be wrong:
 | EyeOfOdin | `ForceEyeOfOdinDrops` | `true` | **Test mode.** Skip storage, drop everything at the Eye. |
 | EyeOfOdin | `DropAtEyeOfOdinWhenNoStorage` | `true` | When no storage has room, drop at the Eye instead of the workstation. |
 | EyeOfOdin | `StandOffDistance` | `4` | Metres in front of the Eye to stand. Negative if they end up behind it. |
+| TestTools | `ShowCleanupButton` | `true` | Show the "Clean inventory now" button in the villager menu. |
+| TestTools | `CleanupButtonX` / `CleanupButtonY` | `0.5` / `0.04` | Button position, as fractions of screen width and height. |
 
 Turn `ForceEyeOfOdinDrops` off once the test has confirmed that cleanup works.
 
@@ -82,10 +106,11 @@ Each game launch replaces this focused log:
 ```
 
 The same events are also written to BepInEx's `LogOutput.log`, tagged
-`IVIC_DIAG`. New in 0.3.0: `tool_admission_selected`,
-`tool_admission_reverted`, `eye_of_odin_resolved`, `eye_of_odin_redirect` and
-`eye_of_odin_unavailable`. See [docs/DIAGNOSTIC_TEST.md](docs/DIAGNOSTIC_TEST.md).
+`IVIC_DIAG`. See [docs/DIAGNOSTIC_TEST.md](docs/DIAGNOSTIC_TEST.md) for what
+each event means.
 
 ## Status
 
-`0.3.0` has not yet been validated in-game.
+The `0.3.0` core fix is validated in-game: tools were deposited and job tools
+kept. See `Aska_Mods/logs/Improved_Villager_Inventory_Cleanup/README.md`, run 3.
+`0.4.0` (force mode, watcher and button) has not been tested yet.

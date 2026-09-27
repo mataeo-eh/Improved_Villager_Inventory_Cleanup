@@ -121,10 +121,10 @@ internal static class CleanupCheckItemBehaviourPatch
 {
     /// <summary>
     /// Runs before vanilla CheckItem. Records the current pick, forces
-    /// depositAny, registers this data object with the scan context (used by the
-    /// Eye of Odin patches), and arms the admission when the item is in an
+    /// depositAny, registers this data object with the CleanupWatcher (which follows
+    /// what the villager does with the pick), and arms the admission when the item is in an
     /// eligible category.
-    /// Calls: DepositAnyOverride.Apply, CleanupScanContext.NoteScan,
+    /// Calls: DepositAnyOverride.Apply, CleanupWatcher.Register,
     /// ItemEligibility.IsEligible.
     /// </summary>
     /// <param name="__instance">The villager's cleanup FSM state.</param>
@@ -138,7 +138,7 @@ internal static class CleanupCheckItemBehaviourPatch
         if (__instance == null) return;
 
         DepositAnyOverride.Apply(__instance);
-        CleanupScanContext.NoteScan(__instance);
+        CleanupWatcher.Register(__instance);
 
         if (!Plugin.EnableToolDepositing.Value || !ItemEligibility.IsEligible(__0)) return;
 
