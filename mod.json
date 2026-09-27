@@ -1,0 +1,29 @@
+{
+  "name": "Improved_Villager_Inventory_Cleanup",
+  "displayName": "Improved Villager Inventory Cleanup",
+  "build": {
+    "pluginProject": "src/ImprovedVillagerInventoryCleanup/ImprovedVillagerInventoryCleanup.csproj",
+    "configuration": "Release",
+    "profileProperty": "AskaProfileDir",
+    "interopProperty": "AskaInteropDir",
+    "assemblies": ["ImprovedVillagerInventoryCleanup.dll"]
+  },
+  "version": {
+    "sourceFile": "src/ImprovedVillagerInventoryCleanup/Plugin.cs",
+    "constant": "PluginVersion"
+  },
+  "game": {
+    "profileDir": "%APPDATA%/Thunderstore Mod Manager/DataFolder/ASKA/profiles/Test_Mods",
+    "installDir": "%ProgramFiles(x86)%/Steam/steamapps/common/ASKA",
+    "pluginsFolder": "ImprovedVillagerInventoryCleanup"
+  },
+  "log": {
+    "match": ["Improved Villager Inventory Cleanup", "ImprovedVillagerInventoryCleanup", "aska.improved.villager.inventory.cleanup", "IVIC_DIAG"]
+  },
+  "thunderstore": {
+    "team": "Aska_Team",
+    "communities": ["aska"],
+    "categories": [],
+    "packagingDir": "packaging"
+  }
+}

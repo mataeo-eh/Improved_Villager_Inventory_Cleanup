@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+    <AskaProfileDir Condition="'$(AskaProfileDir)' == ''">$(APPDATA)\Thunderstore Mod Manager\DataFolder\ASKA\profiles\Test_Mods</AskaProfileDir>
+    <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(AskaProfileDir)\BepInEx\core</BepInExCoreDir>
+    <AskaInteropDir Condition="'$(AskaInteropDir)' == ''">$(AskaProfileDir)\BepInEx\interop</AskaInteropDir>
+  </PropertyGroup>
+</Project>
+

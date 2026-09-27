@@ -1,0 +1,23 @@
+bin/
+obj/
+.vs/
+*.user
+*.zip
+artifacts/
+
+# Credentials. The Thunderstore service account token lives in the harness root
+# (outside this repository) so one credential serves every mod. These patterns
+# are a safety net: a token that lands in this tree by accident must not be
+# committed, because it grants publish rights to the Thunderstore team.
+.thunderstore.token
+*.token
+.env
+
+# Packaged zips and diagnostic logs are written into the harness (dist/<ModName>,
+# logs/<ModName>), not in here. Kept as a safety net in case anything is run with
+# an output directory pointed at this repository. Preserved diagnostic runs for
+# this mod live in ../../logs/Improved_Villager_Inventory_Cleanup/ - see the
+# README.md there.
+dist/
+logs/
+*.log
