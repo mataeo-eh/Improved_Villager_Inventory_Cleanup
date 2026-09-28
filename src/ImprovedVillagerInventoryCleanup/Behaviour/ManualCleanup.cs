@@ -1,24 +1,22 @@
 // ManualCleanup - starts a villager's "clean inventory" quest on demand.
 //
-// Role in the larger system: testing needs a deterministic way to make one
-// chosen villager clean up now, instead of changing jobs or schedules and
-// hoping. The villager menu button (UI/CleanupButton) calls Request().
+// Role in the larger system: two callers need to make a villager clean up now.
+// CleanupScheduler does it for villagers who still carry unneeded items, and
+// the debug button (UI/CleanupButton) does it for the villager on screen.
 //
 // It does exactly what the game itself does when it wants a cleanup (read from
 // the binary: CleanupInventoryQuestData._OnWorkstationEvent and
 // _OnVillagerBehaviorChanged):
 //
 //   questData.CleanupRequested = true;     // without this GetPriority returns 0
-//   questData.Important = true;            // work priority 22 instead of 15
+//   questData.Important = important;       // work priority 22 instead of 15
 //   questRunner.ReevaluateQuest(quest);    // re-rank the villager's quests now
 //
 // CleanupInventoryQuest.GetPriority returns 0 - never runs - unless
-// CleanupRequested or TrashDetected is set, and Stop() clears both. That is why,
-// in the 0.3.0 test, cleanup ran once after loading and then almost never: a
-// run that was interrupted lost its request until the next job or schedule
-// change. Pressing the button again re-arms it.
+// CleanupRequested or TrashDetected is set, and Stop() clears both. So vanilla
+// cleanup forgets a request as soon as a run ends or is interrupted.
 //
-// Depends on: DiagnosticLog, DiagnosticTracker, GameDescribe, Plugin (config).
+// Depends on: DiagnosticLog, DiagnosticTracker, GameDescribe, Plugin (config), VoyageGuard.
 
 using System;
 using ImprovedVillagerInventoryCleanup.Diagnostics;
@@ -30,27 +28,39 @@ namespace ImprovedVillagerInventoryCleanup.Behaviour;
 internal static class ManualCleanup
 {
     /// <summary>
-    /// Requests a cleanup from every cleanup quest the villager has (normally
-    /// one), and puts the villager under observation so the run is logged.
-    /// Never throws; the outcome is written to the diagnostic log.
+    /// Button entry point: requests an important cleanup and returns a message
+    /// for the player. Never throws.
     /// Called by: UI.CleanupButton when the player clicks it.
     /// </summary>
     /// <param name="villager">The villager shown in the open villager menu.</param>
-    /// <returns>A short message for the button to show the player.</returns>
+    /// <returns>A short message for the button to show.</returns>
     internal static string Request(Villager villager)
     {
         if (villager == null) return "No villager selected.";
+        if (VoyageGuard.IsExempt(villager)) return $"{villager.GetName()} is away on a voyage; left vanilla.";
 
+        DiagnosticTracker.Track(villager, "manual_cleanup_button", Plugin.CleanupTrackingWindowSeconds.Value);
+        var requested = RequestCleanup(villager, important: true, reason: "button");
+        return requested > 0
+            ? $"Cleanup requested for {villager.GetName()}."
+            : "This villager has no cleanup quest (no job?).";
+    }
+
+    /// <summary>
+    /// Arms every cleanup quest the villager has (normally one) and asks the
+    /// quest runner to re-rank. Never throws; the outcome is logged.
+    /// Called by: Request, CleanupScheduler.
+    /// </summary>
+    /// <param name="villager">The villager to clean up.</param>
+    /// <param name="important">True for the higher work priority (22 vs 15).</param>
+    /// <param name="reason">Why, for the log ("button", "unneeded_items").</param>
+    /// <returns>How many cleanup quests were armed; 0 means none exists.</returns>
+    internal static int RequestCleanup(Villager villager, bool important, string reason)
+    {
         try
         {
-            DiagnosticTracker.Track(villager, "manual_cleanup_button", Plugin.CleanupTrackingWindowSeconds.Value);
-
             var runner = villager.GetQuestRunner();
-            if (runner == null)
-            {
-                DiagnosticLog.Write("manual_cleanup_failed", $"{GameDescribe.Villager(villager)} reason=no_quest_runner");
-                return "Villager has no quest runner.";
-            }
+            if (runner == null) return 0;
 
             var requested = 0;
             foreach (var entry in runner._questDataTable)
@@ -59,27 +69,24 @@ internal static class ManualCleanup
                 if (data == null) continue;
 
                 data.CleanupRequested = true;
-                data.Important = true;
+                if (important) data.Important = true;
                 runner.ReevaluateQuest(entry.Key);
                 requested++;
 
-                DiagnosticLog.Write("manual_cleanup_requested",
-                    $"{GameDescribe.Villager(villager)} quest_status={data.questStatus} " +
-                    $"quest_priority={entry.Key.GetPriority(data):0.##} " +
-                    $"active_quest_after={GameDescribe.Quest(runner)} inventory={GameDescribe.Inventory(villager)}");
+                DiagnosticLog.Write("cleanup_requested",
+                    $"{GameDescribe.Villager(villager)} reason={reason} important={important} " +
+                    $"quest_status={data.questStatus} quest_priority={entry.Key.GetPriority(data):0.##} " +
+                    $"active_quest_after={GameDescribe.Quest(runner)}");
             }
 
             if (requested == 0)
-            {
-                DiagnosticLog.Write("manual_cleanup_failed", $"{GameDescribe.Villager(villager)} reason=no_cleanup_quest");
-                return "This villager has no cleanup quest (no job or home?).";
-            }
-            return $"Cleanup requested for {villager.GetName()}.";
+                DiagnosticLog.Write("cleanup_request_failed", $"{GameDescribe.Villager(villager)} reason={reason} why=no_cleanup_quest");
+            return requested;
         }
         catch (Exception exception)
         {
-            DiagnosticLog.WriteException("manual_cleanup_failed", exception);
-            return "Cleanup request failed - see the diagnostic log.";
+            DiagnosticLog.WriteException("cleanup_request_failed", exception);
+            return 0;
         }
     }
 }

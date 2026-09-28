@@ -1,3 +1,14 @@
+// Plugin - BepInEx entry point for Improved Villager Inventory Cleanup.
+//
+// Role in the larger system: binds every config entry, applies the Harmony
+// patches in Patches/, and creates the one hidden Unity object
+// (DiagnosticBehaviour) that gives the mod a per-frame tick and a GUI pass.
+//
+// Config keys whose defaults changed meaning between versions were given new
+// names rather than new defaults, because BepInEx keeps a value already saved
+// in the .cfg file. For example 0.4.0's ForceEyeOfOdinDrops=true would otherwise
+// silently keep test mode on.
+
 using System;
 using BepInEx;
 using BepInEx.Configuration;
@@ -16,27 +27,32 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "aska.improved.villager.inventory.cleanup";
     public const string PluginName = "Improved Villager Inventory Cleanup";
-    public const string PluginVersion = "0.4.0";
+    public const string PluginVersion = "0.5.0";
 
     internal static new ManualLogSource Log { get; private set; }
+
+    // Diagnostics: how much the focused log records.
     internal static ConfigEntry<float> TrackingWindowSeconds { get; private set; }
     internal static ConfigEntry<float> SnapshotIntervalSeconds { get; private set; }
     internal static ConfigEntry<float> CleanupTrackingWindowSeconds { get; private set; }
 
-    // Behaviour switches. Every one of these can be turned off to fall back to
-    // vanilla without rebuilding, which matters because this is the first version
-    // that changes the game rather than only watching it.
-    internal static ConfigEntry<bool> EnableToolDepositing { get; private set; }
-    internal static ConfigEntry<bool> AllowGroundDrops { get; private set; }
+    // Cleanup: what villagers put away, and when.
+    internal static ConfigEntry<bool> EnableImprovedCleanup { get; private set; }
     internal static ConfigEntry<string> EligibleCategories { get; private set; }
+    internal static ConfigEntry<string> ExcludedCategories { get; private set; }
+    internal static ConfigEntry<bool> CleanEquippedTools { get; private set; }
+    internal static ConfigEntry<bool> KeepCleaningUntilDone { get; private set; }
+    internal static ConfigEntry<float> RecheckIntervalSeconds { get; private set; }
+    internal static ConfigEntry<bool> AddCleanupToStationsWithout { get; private set; }
+    internal static ConfigEntry<float> StorageSearchDistance { get; private set; }
+    internal static ConfigEntry<bool> AllowGroundDrops { get; private set; }
 
-    // Eye of Odin fallback: a test mode that proves cleanup works regardless of
-    // storage space, by having villagers drop items in front of the Eye.
+    // Last resort: where items go when no storage anywhere will take them.
     internal static ConfigEntry<bool> EyeOfOdinFallback { get; private set; }
-    internal static ConfigEntry<bool> ForceEyeOfOdinDrops { get; private set; }
     internal static ConfigEntry<float> EyeOfOdinStandOffDistance { get; private set; }
 
-    // Test tool: the "Clean inventory now" button in the villager menu.
+    // Debug: test tools, off for normal play.
+    internal static ConfigEntry<bool> ForceEyeOfOdinDrops { get; private set; }
     internal static ConfigEntry<bool> ShowCleanupButton { get; private set; }
     internal static ConfigEntry<float> CleanupButtonX { get; private set; }
     internal static ConfigEntry<float> CleanupButtonY { get; private set; }
@@ -46,49 +62,9 @@ public sealed class Plugin : BasePlugin
     public override void Load()
     {
         Log = base.Log;
-        TrackingWindowSeconds = Config.Bind("Diagnostics", "TrackingWindowSeconds", 600f,
-            "How long a villager remains under detailed observation after a workstation change.");
-        SnapshotIntervalSeconds = Config.Bind("Diagnostics", "SnapshotIntervalSeconds", 5f,
-            "How often an observed villager's inventory and active quest are recorded.");
-        CleanupTrackingWindowSeconds = Config.Bind("Diagnostics", "CleanupTrackingWindowSeconds", 180f,
-            "How long a villager is observed after STARTING a cleanup quest, as opposed to after a " +
-            "workstation change. This is what captures villagers who clean up without being reassigned. " +
-            "Kept shorter than TrackingWindowSeconds because the longest observed cleanup run was 27 " +
-            "seconds, and a long window across many villagers makes the log hard to read.");
-
-        EnableToolDepositing = Config.Bind("Cleanup", "EnableToolDepositing", true,
-            "Let villagers put away items vanilla never considers, most importantly tools they no longer need. " +
-            "Turns on the game's own 'deposit anything' switch, so vanilla's protections for equipped gear, " +
-            "bags, food and job-required items all still apply. Set false to restore vanilla behaviour exactly.");
-        AllowGroundDrops = Config.Bind("Cleanup", "AllowGroundDrops", true,
-            "Allow dropping an unwanted item on the ground when no storage will accept it. " +
-            "Without this, a villager with no valid storage keeps carrying the item forever.");
-        EligibleCategories = Config.Bind("Cleanup", "EligibleCategories", "Tools",
-            "Comma-separated item category paths villagers may put away when unneeded, on top of what vanilla allows. " +
-            "A path covers everything under it: 'Tools' covers 'Tools/Axes', 'Tools/Hoes' and so on. " +
-            "Items the villager's current job needs, or has equipped, are always kept.");
-        EligibleCategories.SettingChanged += OnEligibleCategoriesChanged;
-        ItemEligibility.Reload();
-
-        EyeOfOdinFallback = Config.Bind("EyeOfOdin", "DropAtEyeOfOdinWhenNoStorage", true,
-            "When no storage will take an item, walk to the Eye of Odin and drop it on the ground in front of it, " +
-            "instead of dropping it at the villager's workstation.");
-        ForceEyeOfOdinDrops = Config.Bind("EyeOfOdin", "ForceEyeOfOdinDrops", true,
-            "TEST MODE. Skip storage entirely: everything villagers would have put into storage while cleaning up " +
-            "is dropped on the ground in front of the Eye of Odin instead. Proves cleanup is working independently " +
-            "of storage space. Turn off to deposit into storage normally.");
-        EyeOfOdinStandOffDistance = Config.Bind("EyeOfOdin", "StandOffDistance", 4f,
-            "How many metres in front of the Eye of Odin villagers stand to drop items. " +
-            "Use a negative value if they end up behind it.");
-
-        ShowCleanupButton = Config.Bind("TestTools", "ShowCleanupButton", true,
-            "Show a 'Clean inventory now' button while a villager's menu is open. Clicking it starts that " +
-            "villager's cleanup quest immediately, the same way a job change does.");
-        CleanupButtonX = Config.Bind("TestTools", "CleanupButtonX", 0.5f,
-            "Horizontal centre of the button, as a fraction of screen width (0 = left edge, 1 = right edge).");
-        CleanupButtonY = Config.Bind("TestTools", "CleanupButtonY", 0.04f,
-            "Top of the button, as a fraction of screen height (0 = top edge, 1 = bottom edge).");
+        BindConfig();
         DiagnosticLog.Initialize();
+
         try
         {
             _harmony = new Harmony(PluginGuid);
@@ -102,28 +78,90 @@ public sealed class Plugin : BasePlugin
 
             DiagnosticLog.Write("plugin_loaded",
                 $"version={PluginVersion} game_version={Application.version} " +
-                $"tracking_seconds={TrackingWindowSeconds.Value:0.###} " +
-                $"snapshot_seconds={SnapshotIntervalSeconds.Value:0.###} " +
-                $"cleanup_tracking_seconds={CleanupTrackingWindowSeconds.Value:0.###} " +
-                $"tool_depositing={EnableToolDepositing.Value} ground_drops={AllowGroundDrops.Value} " +
-                $"eligible_categories={DiagnosticLog.Quote(EligibleCategories.Value)} " +
-                $"eye_of_odin_fallback={EyeOfOdinFallback.Value} force_eye_of_odin={ForceEyeOfOdinDrops.Value}");
-            Log.LogInfo($"{PluginName} {PluginVersion} loaded (tool depositing={EnableToolDepositing.Value}, " +
-                        $"eye of odin fallback={EyeOfOdinFallback.Value}, forced={ForceEyeOfOdinDrops.Value}).");
+                $"improved_cleanup={EnableImprovedCleanup.Value} " +
+                $"eligible={DiagnosticLog.Quote(EligibleCategories.Value)} excluded={DiagnosticLog.Quote(ExcludedCategories.Value)} " +
+                $"clean_equipped_tools={CleanEquippedTools.Value} keep_cleaning={KeepCleaningUntilDone.Value} " +
+                $"recheck_seconds={RecheckIntervalSeconds.Value:0.#} add_missing_quests={AddCleanupToStationsWithout.Value} " +
+                $"storage_search_distance={StorageSearchDistance.Value:0.#} " +
+                $"last_resort_drops={EyeOfOdinFallback.Value} force_last_resort={ForceEyeOfOdinDrops.Value} " +
+                $"cleanup_button={ShowCleanupButton.Value}");
+            Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
             Log.LogInfo($"Diagnostic output: {DiagnosticLog.OutputPath}");
         }
         catch (Exception exception)
         {
-            Log.LogError($"Failed to start diagnostics: {exception}");
+            Log.LogError($"Failed to start: {exception}");
             DiagnosticLog.WriteException("plugin_start_failed", exception);
         }
     }
 
     /// <summary>
-    /// Re-reads the eligible category list when it is edited while the game runs.
-    /// Subscribed to <c>EligibleCategories.SettingChanged</c> in <see cref="Load"/>.
+    /// Binds every config entry. Split out of Load only to keep Load readable.
+    /// Calls: ItemEligibility.Reload.
     /// </summary>
-    private static void OnEligibleCategoriesChanged(object sender, EventArgs args) => ItemEligibility.Reload();
+    private void BindConfig()
+    {
+        TrackingWindowSeconds = Config.Bind("Diagnostics", "TrackingWindowSeconds", 600f,
+            "How long a villager remains under detailed observation after a workstation change.");
+        SnapshotIntervalSeconds = Config.Bind("Diagnostics", "SnapshotIntervalSeconds", 5f,
+            "How often an observed villager's inventory and active quest are recorded.");
+        CleanupTrackingWindowSeconds = Config.Bind("Diagnostics", "CleanupTrackingWindowSeconds", 180f,
+            "How long a villager is observed after starting a cleanup quest.");
+
+        EnableImprovedCleanup = Config.Bind("Cleanup", "EnableImprovedCleanup", true,
+            "Master switch. False restores vanilla cleanup exactly.");
+        EligibleCategories = Config.Bind("Cleanup", "EligibleItemCategories", "*",
+            "Comma-separated item categories villagers may put away when their job does not need them. " +
+            "'*' means every category. A category covers everything under it: 'Tools' covers 'Tools/Axes'. " +
+            "Items the current job needs are always kept, whatever this says.");
+        ExcludedCategories = Config.Bind("Cleanup", "ExcludedItemCategories",
+            "Resources/Food, Resources/Elements, Bags, Armor, Weapons, Tools/Torches",
+            "Comma-separated categories never put away by this mod, even when eligible above. " +
+            "Defaults keep food, water and smilk, bags, clothing, weapons and torches, which villagers " +
+            "need for survival, dressing, defence or light rather than for their job.");
+        CleanEquippedTools = Config.Bind("Cleanup", "CleanEquippedTools", true,
+            "Also put away a tool the villager has equipped (in hand) when their current job does not need it. " +
+            "Never applies to warriors, whose tools can be weapons.");
+        KeepCleaningUntilDone = Config.Bind("Cleanup", "KeepCleaningUntilDone", true,
+            "Keep asking a villager to clean up until they carry nothing their job does not need. " +
+            "Vanilla only asks on a job or schedule change, and forgets the request if the run is interrupted.");
+        RecheckIntervalSeconds = Config.Bind("Cleanup", "RecheckIntervalSeconds", 20f,
+            "How often every villager is checked for unneeded items. A villager whose cleanup could not " +
+            "remove anything is checked less and less often, up to 10 minutes, so nobody loops.");
+        AddCleanupToStationsWithout = Config.Bind("Cleanup", "AddCleanupToStationsWithout", true,
+            "Give workers of stations that have no cleanup quest of their own (such as the fire and air " +
+            "altars) the game's standard cleanup quest.");
+        StorageSearchDistance = Config.Bind("Cleanup", "StorageSearchDistance", 100000f,
+            "How far (metres) a cleaning villager will look for a storage that accepts an item. The large " +
+            "default means any storage in the settlement. 0 or less keeps the game's own limit.");
+        AllowGroundDrops = Config.Bind("Cleanup", "AllowGroundDrops", true,
+            "Allow ground drops during cleanups the game started because of trash.");
+        ItemEligibility.Reload();
+        EligibleCategories.SettingChanged += OnCategoriesChanged;
+        ExcludedCategories.SettingChanged += OnCategoriesChanged;
+
+        EyeOfOdinFallback = Config.Bind("LastResort", "DropAtEyeOfOdinWhenNoStorage", true,
+            "When no storage anywhere will take an item, drop it on the ground in front of the Eye of Odin. " +
+            "Villagers who live at an outpost drop it in front of their outpost instead.");
+        EyeOfOdinStandOffDistance = Config.Bind("LastResort", "StandOffDistance", 4f,
+            "How many metres in front of the Eye of Odin (or outpost) villagers stand to drop items. " +
+            "Use a negative value if they end up behind it.");
+
+        ForceEyeOfOdinDrops = Config.Bind("Debug", "ForceLastResortDrops", false,
+            "TEST ONLY. Skip storage entirely and send every cleaned-up item to the last-resort drop point.");
+        ShowCleanupButton = Config.Bind("Debug", "ShowCleanupButton", false,
+            "Show a 'Clean inventory now' button while a villager's menu is open.");
+        CleanupButtonX = Config.Bind("Debug", "CleanupButtonX", 0.5f,
+            "Horizontal centre of the button, as a fraction of screen width (0 = left, 1 = right).");
+        CleanupButtonY = Config.Bind("Debug", "CleanupButtonY", 0.15f,
+            "Top of the button, as a fraction of screen height (0 = top, 1 = bottom).");
+    }
+
+    /// <summary>
+    /// Re-reads the category lists when either is edited while the game runs.
+    /// Subscribed to both category entries' SettingChanged in BindConfig.
+    /// </summary>
+    private static void OnCategoriesChanged(object sender, EventArgs args) => ItemEligibility.Reload();
 
     public override bool Unload()
     {
@@ -133,4 +171,3 @@ public sealed class Plugin : BasePlugin
         return true;
     }
 }
-

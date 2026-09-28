@@ -1,5 +1,5 @@
 // CleanupWatcher - follows every villager's cleanup FSM state once per frame,
-// logs each decision it makes, and applies the Eye of Odin redirect.
+// logs each decision it makes, and applies the last-resort drop redirect.
 //
 // Role in the larger system
 // -------------------------
@@ -16,21 +16,22 @@
 //   ground drop  itemToDrop set, no interaction, target set -> walks to target, drops it
 //   nothing      itemToDrop null                           -> nothing left to clean
 //
-// The redirect: when the Eye of Odin fallback is on and a villager is on the
-// ground-drop path, the target is swapped for a point in front of the Eye.
+// The redirect: when a villager is on the ground-drop path (no storage anywhere
+// took the item), the target is swapped for a point in front of the Eye of Odin,
+// or in front of their outpost if they live at one (DropPoint). Villagers away on
+// a karvi voyage are left alone (VoyageGuard).
 // Vanilla re-reads the target every tick while walking, so the swap takes
 // effect on the villager's next step.
 //
 // Data objects are registered by the CheckItem prefix, i.e. whenever a
 // villager scans their inventory.
 //
-// Depends on: Plugin (config), EyeOfOdinDropPoint, DiagnosticLog,
+// Depends on: Plugin (config), DropPoint, VoyageGuard, DiagnosticLog,
 // DiagnosticTracker, GameDescribe.
 
 using System;
 using System.Collections.Generic;
 using ImprovedVillagerInventoryCleanup.Diagnostics;
-using ImprovedVillagerInventoryCleanup.Patches;
 using SSSGame.AI.FSM;
 
 namespace ImprovedVillagerInventoryCleanup.Behaviour;
@@ -121,7 +122,7 @@ internal static class CleanupWatcher
         else outcome = "picked";   // item chosen, destination not decided yet
 
         var redirected = false;
-        if (outcome == "ground_drop" && EyeOfOdinEnabled())
+        if (outcome == "ground_drop" && EyeOfOdinEnabled() && !VoyageGuard.IsExempt(villager))
             redirected = TryRedirect(data, villager, target);
 
         // Build the state from the values after any redirect, so a redirect is
@@ -150,7 +151,7 @@ internal static class CleanupWatcher
         DiagnosticLog.Write("cleanup_state",
             $"{GameDescribe.Villager(villager)} outcome={outcome} item={GameDescribe.Item(item)} " +
             $"priority={data.itemToDropPriority} storage={DescribeObject(storage)} " +
-            $"walk_target={DescribeObject(target)} redirected_to_eye={redirected}");
+            $"walk_target={DescribeObject(target)} redirected_to_drop_point={redirected}");
     }
 
     /// <summary>True when either Eye of Odin setting asks for ground drops to go there.</summary>
@@ -168,17 +169,17 @@ internal static class CleanupWatcher
     /// <returns>True if the target was changed.</returns>
     private static bool TryRedirect(FSM_CleanupInventory.CleanupInventoryData data, SSSGame.Villager villager, UnityEngine.Transform currentTarget)
     {
-        var marker = EyeOfOdinDropPoint.Get(villager);
+        var marker = DropPoint.Get(villager);
         if (marker == null)
         {
-            DiagnosticLog.Write("eye_of_odin_unavailable",
+            DiagnosticLog.Write("drop_point_unavailable",
                 $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(data.itemToDrop)}");
             return false;
         }
         if (currentTarget.Pointer == marker.Pointer) return false;
 
         data.workstationTransform = marker;
-        DiagnosticLog.Write("eye_of_odin_redirect",
+        DiagnosticLog.Write("drop_point_redirect",
             $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(data.itemToDrop)} " +
             $"forced={Plugin.ForceEyeOfOdinDrops.Value} replaced_target={DiagnosticLog.Quote(currentTarget.name)}");
         return true;

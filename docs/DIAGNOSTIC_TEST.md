@@ -1,45 +1,57 @@
 # Villager inventory cleanup test
 
-## Test for 0.4.0 (current)
+## Test for 0.5.0 (current)
 
-The core fix was confirmed in the 0.3.0 run (see the log archive README, run
-3). This test checks the Eye of Odin force mode and the new button.
+0.4.0 proved cleanup works and that villagers reach the Eye of Odin. 0.5.0
+makes it automatic and general. Storage comes first, and the Eye of Odin (or
+their outpost) is the last resort. Force mode is off.
 
-1. Launch ASKA through the `Test_Mods` profile and load the world.
-2. Talk to a villager who carries tools their job does not use, to open their
-   villager menu.
-3. Click **Clean inventory now** at the top of the screen. It should say
-   "Cleanup requested for <name>." Close the menu.
-4. Follow that villager. Expected: they walk to the Eye of Odin and drop their
-   stale tools, and any surplus materials, on the ground in front of it.
-5. Repeat with a couple of other villagers. Click again if a run gets
-   interrupted: an interrupted run drops its request.
+1. Launch ASKA through the `Test_Mods` profile and load the world. **Do not
+   press the button at first.** The point is to see cleanup happen on its own.
+2. Watch a few villagers you know carry unneeded tools or materials, including
+   a fire or air altar keeper. Within a minute or two they should walk to a
+   storage and put the items away, and keep going until they are done.
+3. Change a stone cutter (or any worker with job materials) to another job.
+   They should put the old job's materials away.
+4. If you can, have a karvi crew on a voyage. They should behave exactly as in
+   vanilla.
+5. Use the debug button (enabled in the Test_Mods config) only if a villager
+   never starts on their own. Note who it was.
 6. Exit normally, then collect `diagnostic-latest.log` before launching again.
 
 Results to check in the log:
 
 | Event | Meaning |
 | --- | --- |
-| `manual_cleanup_requested` | The button worked. `quest_priority` should be above 0, and `active_quest_after` shows whether cleanup took over at once. |
-| `manual_cleanup_failed` | The button found no cleanup quest for that villager. `reason=` says why. |
-| `cleanup_state` | Each decision: `outcome=deposit` (into storage), `ground_drop` (walk and drop), or `nothing`. It also gives `walk_target` and `redirected_to_eye`. |
-| `cleanup_stalled` | The same item and destination for 30 s. It includes the walk target and villager positions, to tell an unreachable spot apart from an interrupted run. |
-| `eye_of_odin_resolved` | Shows what the mod thinks the Eye of Odin is (`core_name`). Check that this really is the Eye. |
-| `tool_admission_selected` | A stale tool got past the gate and was picked. **This is the core fix working.** |
-| `tool_admission_reverted` | A tool got past the gate but vanilla ranked it as needed, so it was kept. Expected for job tools. |
-| `eye_of_odin_redirect` | A villager was sent to the Eye with an item. |
-| `eye_of_odin_unavailable` | No settlement core was found for that villager. |
+| `unneeded_items_found` | The scheduler saw unneeded items and requested a cleanup. It lists the items, whether the last request made progress, and when the next check is. |
+| `cleanup_requested` | A cleanup was requested (`reason=unneeded_items` or `button`), with its priority. |
+| `cleanup_quest_added` / `cleanup_quest_removed` | A worker of a station without a cleanup quest (altars) was given one, or it was taken away after a job change. |
+| `item_admission_selected` | An unneeded item got past the vanilla gate and was picked. |
+| `item_admission_reverted` | The game ranked the item as needed (for example `NEEDED_AT_WORK`), so it was kept. |
+| `cleanup_state` | Each decision: `deposit` (into storage), `ground_drop` (no storage took it), or `nothing`. |
+| `drop_point_redirect` | Last resort: a villager was sent to the Eye of Odin or their outpost. Each one of these means no storage anywhere accepted the item. |
+| `drop_point_resolved` | Which structure was used (`kind=eye_of_odin` or `outpost`). |
+| `voyage_state_changed` | A villager left for (`away=True`) or returned from a voyage. |
+| `storage_search_distance_set` | The cleanup storage radius was lifted. `authored=` is the game's original value. |
+| `cleanup_stalled` | The same item and destination for 30 s: usually a long walk, sometimes an unreachable spot. |
 
 These outcomes mean something is wrong:
 
-- **The villager's current job tool is dropped.** Set `EnableToolDepositing=false` and report it.
-- **`cleanup_stalled` appears, or `tool_admission_selected` does but the item never leaves the inventory.**
-  The FSM's walk or drop step is the problem. Compare `walk_target_position` with
-  `villager_position` in the stall line.
-- **Villagers stand beside the Eye without dropping anything.** The stand point
-  may be unreachable. Change `StandOffDistance`, for example to 6 or -4.
-- **A builder drops items where they stand.** This is a known vanilla branch for
-  some Buildstation villagers. It is harmless.
+- **A villager puts away something their job uses** (a farmer's seeds, a
+  firekeeper's wood). Report the item and job. The quick fix is to add the
+  category to `ExcludedItemCategories`.
+- **A villager keeps starting and stopping cleanup with no items leaving.**
+  Look for repeated `unneeded_items_found` with `progress=False`. The back-off
+  should stretch the checks out to 10 minutes.
+- **A voyage crew drops items or walks home.** Check that `voyage_state_changed
+  away=True` was logged for them.
+
+## History: 0.4.0
+
+The 0.4.0 test (force mode, button) confirmed that the button works and that
+villagers drop at the Eye of Odin. It also found that altar workers
+(`Praystation`) have no cleanup quest at all, and that clearing a villager
+fully took several requests.
 
 ## History: 0.2.0
 

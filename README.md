@@ -1,91 +1,76 @@
 # Improved Villager Inventory Cleanup
 
-An ASKA BepInEx mod that gets villagers to actually clear unneeded items - above
-all stale tools - out of their inventories.
+An ASKA BepInEx mod that gets villagers to put away anything their current job
+does not need: old tools, leftover materials, spare stone. They store it in any
+storage that will take it, and drop it at the Eye of Odin (or their outpost)
+only as a last resort.
 
-## The problem
+## What it does
 
-ASKA villagers have no mechanic for shedding tools. A villager who switches from
-builder to miner carries the road maker, hammers, hoe and axe forever, and those
-tools are effectively deleted from the settlement's economy.
+- **Anything unneeded is cleaned, not just tools.** A stone cutter moved to
+  another job puts his small stones away. The game's own check,
+  `IsItemNeededByVillager`, decides what the job needs, and that is always kept.
+  By default food, water and smilk, bags, clothing, weapons and torches are
+  never touched, since villagers need those to survive, dress, defend
+  themselves or see at night.
+- **An equipped tool is cleaned if the job does not need it.** For example, a
+  builder turned woodcutter no longer keeps the hammer in hand. This does not
+  apply to warriors.
+- **Cleanup keeps going until the villager is done.** Vanilla asks for a
+  cleanup only on a job or schedule change, and forgets the request as soon as
+  the run ends or is interrupted. The mod re-checks every villager on a timer
+  and asks again while they still carry something unneeded. A villager whose
+  cleanup cannot remove anything is checked less and less often, so nobody
+  loops.
+- **Storage first, anywhere in the settlement.** The storage search radius is
+  lifted, so any storage that accepts the item counts.
+- **Last resort: the Eye of Odin.** If no storage anywhere takes the item, the
+  villager drops it in front of the Eye of Odin. Villagers who live at an
+  outpost drop it in front of their outpost instead.
+- **Altar keepers clean up too.** The fire and air altars (`Praystation`), like
+  any station that has no cleanup quest of its own, get the game's standard
+  one for their workers.
+- **Karvi voyages are left alone.** A crew whose ship is at sea or deployed on
+  a trip behaves exactly as in vanilla.
 
-The cleanup quest does run (51 times in the 0.2.0 test), and it does scan every
-tool. The tools are rejected by a gate near the top of
-`FSM_CleanupInventory.CleanupInventoryData.CheckItem`, before any ranking
-happens:
+## Why vanilla never cleans tools
+
+This was read from the game binary with the harness's `scripts/disasm.ps1`.
+Near the top of `FSM_CleanupInventory.CleanupInventoryData.CheckItem`:
 
 ```text
 if (!_CheckContainerNeedingSpace(item.container) && !dropWithoutReasonItems.Check(item.info))
     return;   // never a candidate
 ```
 
-`dropWithoutReasonItems` comes from the authored `itemsToDropWithoutReason`
-tables, which list materials only. So a tool is only ever a candidate when its
-bag is full.
-
-This was read from the game binary with the harness's `scripts/disasm.ps1`.
-Some earlier conclusions turned out to be wrong:
-
-- `CheckItem` **always returns false**. Its pick is written to `itemToDrop`,
-  so `accepted=False` in the 0.1.0 and 0.2.0 logs meant nothing.
-- 0.2.0 forced `depositAny` on, but `CheckItem` only reads that flag when
-  `onlyAllowDepositingToStorage` is true, and it was false on every check. The
-  0.2.0 fix did nothing.
-
-## What 0.3.0 changes
-
-- **Tools get past the gate.** For items in `EligibleCategories` (default
-  `Tools`), the mod makes `_CheckContainerNeedingSpace` answer true for that one
-  call. `CheckItem` is its only caller, and the answer feeds only this gate.
-  Everything after it is vanilla: `neverDropFilter`, and the `NicePriority`
-  ranking for equipped gear, bags, warrior weapons and job-needed items.
-- **Only truly unneeded tools are picked.** An admitted tool is kept as the pick
-  only if vanilla ranked it 0 ("no reason to keep"). Anything vanilla would
-  protect, such as `NEEDED_AT_WORK` or `EQUIPPED_EQUIPMENT`, is reverted.
-- **`depositAny` stays forced on.** It is read once after the scan, and routes
-  the pick to "deposit into storage" instead of "drop next to a storage".
-- **Eye of Odin drops (test mode).** Cleaned-up items are dropped on the ground
-  in front of the Eye of Odin (the settlement core) instead of going into
-  storage. This proves cleanup works whatever the storage situation. It reuses
-  vanilla's "no storage found, walk somewhere and drop it" path, and only changes
-  the destination.
-
-## What 0.4.0 changes
-
-The 0.3.0 test showed that the core fix works: stale tools were deposited, and
-job tools were kept. It also showed three problems, all addressed here:
-
-- **Force mode now takes effect.** The cleanup FSM first asks the villager's
-  own workstation storage for a slot (`StorageToDropIntoPredicate`), and only
-  then searches the settlement (`ResourceStoragePredicate`). In force mode both
-  predicates now refuse, so every pick goes down the ground-drop path. 0.3.0
-  only blocked the settlement search, so everything went into workstation
-  storage.
-- **The redirect no longer depends on hooking the FSM update.**
-  `CleanupWatcher` reads each villager's cleanup state once per frame. It logs
-  every decision (`cleanup_state`), redirects ground drops to the Eye, and
-  reports villagers stuck on one item for 30 s (`cleanup_stalled`).
-- **"Clean inventory now" button.** It appears at the top of the screen while a
-  villager's menu is open. Clicking it does exactly what the game does on a job
-  change: it sets `CleanupRequested` and `Important`, then calls
-  `QuestRunner.ReevaluateQuest`. This is needed because vanilla only asks for a
-  cleanup on a job, schedule or viking-status change, and an interrupted run
-  loses its request.
+`dropWithoutReasonItems` lists materials only, so a tool is a candidate only
+when the villager's bag is full. The mod lets eligible items past this gate.
+Everything after the gate is still vanilla ranking (`NicePriority`), and the
+mod only keeps a pick the game ranked 0 ("no reason to keep"), or an equipped
+tool the job does not need. The source files' headers explain each piece.
 
 ## Configuration
 
 | Section | Key | Default | Purpose |
 | --- | --- | --- | --- |
-| Cleanup | `EnableToolDepositing` | `true` | The core fix. False restores vanilla. |
-| Cleanup | `EligibleCategories` | `Tools` | Comma-separated category paths the fix applies to. |
-| Cleanup | `AllowGroundDrops` | `true` | Allow ground drops during trash-triggered cleanups. |
-| EyeOfOdin | `ForceEyeOfOdinDrops` | `true` | **Test mode.** Skip storage, drop everything at the Eye. |
-| EyeOfOdin | `DropAtEyeOfOdinWhenNoStorage` | `true` | When no storage has room, drop at the Eye instead of the workstation. |
-| EyeOfOdin | `StandOffDistance` | `4` | Metres in front of the Eye to stand. Negative if they end up behind it. |
-| TestTools | `ShowCleanupButton` | `true` | Show the "Clean inventory now" button in the villager menu. |
-| TestTools | `CleanupButtonX` / `CleanupButtonY` | `0.5` / `0.04` | Button position, as fractions of screen width and height. |
+| Cleanup | `EnableImprovedCleanup` | `true` | Master switch. False restores vanilla. |
+| Cleanup | `EligibleItemCategories` | `*` | Categories that may be cleaned. `*` means all. |
+| Cleanup | `ExcludedItemCategories` | food, elements, bags, armor, weapons, torches | Never cleaned. |
+| Cleanup | `CleanEquippedTools` | `true` | Clean an equipped tool the job does not need. |
+| Cleanup | `KeepCleaningUntilDone` | `true` | Re-request cleanup while unneeded items remain. |
+| Cleanup | `RecheckIntervalSeconds` | `20` | How often villagers are re-checked. |
+| Cleanup | `AddCleanupToStationsWithout` | `true` | Give altar workers, and similar, a cleanup quest. |
+| Cleanup | `StorageSearchDistance` | `100000` | Storage search radius. `0` keeps the game's own. |
+| LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
+| LastResort | `StandOffDistance` | `4` | Metres in front of the Eye or outpost. |
+| Debug | `ForceLastResortDrops` | `false` | Skip storage; send everything to the drop point. |
+| Debug | `ShowCleanupButton` | `false` | "Clean inventory now" button in the villager menu. |
+| Debug | `CleanupButtonX` / `CleanupButtonY` | `0.5` / `0.15` | Button position, as fractions of the screen. |
 
-Turn `ForceEyeOfOdinDrops` off once the test has confirmed that cleanup works.
+Category names are matched loosely: `Tools`, `Resources/Stone` and so on, case
+and spaces ignored. The categories seen so far are Tools, Weapons, Armor, Bags,
+Resources (Food, Elements, Wood, Stone, Materials, Seeds, Misc, Junk, Iron,
+Magic) and Blueprints.
 
 ## Build and deploy
 
@@ -109,8 +94,13 @@ The same events are also written to BepInEx's `LogOutput.log`, tagged
 `IVIC_DIAG`. See [docs/DIAGNOSTIC_TEST.md](docs/DIAGNOSTIC_TEST.md) for what
 each event means.
 
-## Status
+## Status and history
 
-The `0.3.0` core fix is validated in-game: tools were deposited and job tools
-kept. See `Aska_Mods/logs/Improved_Villager_Inventory_Cleanup/README.md`, run 3.
-`0.4.0` (force mode, watcher and button) has not been tested yet.
+| Version | Result |
+| --- | --- |
+| 0.2.0 | Did nothing: it forced a flag the gate above never reads. |
+| 0.3.0 | Core fix validated: stale tools deposited, job tools kept. |
+| 0.4.0 | Forced Eye of Odin drops and the debug button validated in-game. Altar workers had no cleanup quest. Clearing everything needed several requests. |
+| 0.5.0 | Not yet tested. |
+
+The test logs are archived in `Aska_Mods/logs/Improved_Villager_Inventory_Cleanup/`.

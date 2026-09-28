@@ -27,19 +27,22 @@
 //      before any of the priority ranking runs. That matches the log exactly:
 //      235 tool checks, every one ending with the tool never selected.
 //
-// The fix: for items in the configured categories (default "Tools"), make
+// The fix: for items ItemEligibility allows (every category except food,
+// water, bags, clothing, weapons and torches by default), make
 // _CheckContainerNeedingSpace report true for that one call. That is the only
 // caller of _CheckContainerNeedingSpace (confirmed with an X query), and its
 // result is only used for this gate, so nothing else changes. Everything after
 // the gate is still vanilla: neverDropFilter, equipped-gear, bags, warrior
 // weapons and "needed at work" all still raise the item's NicePriority.
 //
-// On top of that we only keep an admitted tool as the pick when vanilla ranked
-// it 0 - the value meaning "no reason at all to keep this". A tool the current
-// job needs ranks NEEDED_AT_WORK / TOOLS_AND_CLOTHES, and vanilla would happily
-// pick it as the "least bad" item if nothing lower existed. We undo that pick,
-// so an admitted tool is only ever removed when the game itself says it is
-// unneeded.
+// On top of that we only keep an admitted item as the pick when vanilla ranked
+// it 0 - "no reason at all to keep this" - or when it is an equipped tool the
+// job does not need (see IsAcceptable). Anything the current job needs ranks
+// NEEDED_AT_WORK, and vanilla would happily pick it as the "least bad" item if
+// nothing lower existed. We undo that pick, so an admitted item is only ever
+// removed when the game itself says the job does not need it.
+//
+// Villagers away on a karvi voyage (VoyageGuard) are skipped entirely.
 //
 // depositAny is still forced on, because it IS read once more after the scan:
 // with it on, the picked item goes to the "deposit into storage" branch; with
@@ -81,7 +84,8 @@ internal static class DepositAnyOverride
     internal static void Apply(FSM_CleanupInventory.CleanupInventoryData data)
     {
         if (data == null) return;
-        if (!Plugin.EnableToolDepositing.Value) return;
+        if (!Plugin.EnableImprovedCleanup.Value) return;
+        if (VoyageGuard.IsExempt(data.agent)) return;
 
         try
         {
@@ -137,10 +141,13 @@ internal static class CleanupCheckItemBehaviourPatch
         CleanupScanContext.AdmissionUsed = false;
         if (__instance == null) return;
 
+        // A crew away on a voyage gets pure vanilla behaviour.
+        if (VoyageGuard.IsExempt(__instance.agent)) return;
+
         DepositAnyOverride.Apply(__instance);
         CleanupWatcher.Register(__instance);
 
-        if (!Plugin.EnableToolDepositing.Value || !ItemEligibility.IsEligible(__0)) return;
+        if (!Plugin.EnableImprovedCleanup.Value || !ItemEligibility.IsEligible(__0)) return;
 
         try
         {
@@ -185,11 +192,11 @@ internal static class CleanupCheckItemBehaviourPatch
 
             var villager = __instance.agent;
             var priority = __instance.itemToDropPriority;
-            if ((int)priority == 0)
+            if (IsAcceptable(villager, __0, priority))
             {
                 if (DiagnosticTracker.IsTracked(villager))
-                    DiagnosticLog.Write("tool_admission_selected",
-                        $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(__0)}");
+                    DiagnosticLog.Write("item_admission_selected",
+                        $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(__0)} vanilla_priority={priority}");
                 return;
             }
 
@@ -200,12 +207,45 @@ internal static class CleanupCheckItemBehaviourPatch
             __instance._neededForQuestCount = __state.PreviousNeededForQuestCount;
 
             if (DiagnosticTracker.IsTracked(villager))
-                DiagnosticLog.Write("tool_admission_reverted",
+                DiagnosticLog.Write("item_admission_reverted",
                     $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(__0)} vanilla_priority={priority}");
         }
         catch (Exception exception)
         {
-            DiagnosticLog.WriteException("tool_admission_postfix_failed", exception);
+            DiagnosticLog.WriteException("item_admission_postfix_failed", exception);
+        }
+    }
+
+    /// <summary>
+    /// Decides whether an item this mod let past the gate may stay as the pick,
+    /// given the priority the game ranked it at.
+    /// <list type="bullet">
+    /// <item>0 - the game found no reason at all to keep it: accept.</item>
+    /// <item>EQUIPPED_EQUIPMENT on a tool: accept when CleanEquippedTools is on
+    /// and the villager is not a warrior. In CheckItem the "needed at work"
+    /// test runs after the equipped test and overrides it with NEEDED_AT_WORK,
+    /// so an equipped tool that is still ranked EQUIPPED_EQUIPMENT is one the
+    /// current job does not need (read from the binary). This is the builder
+    /// who became a woodcutter with the hammer still in hand.</item>
+    /// <item>Anything else (needed at work, bags, quest items...): reject.</item>
+    /// </list>
+    /// Called by: Postfix.
+    /// </summary>
+    /// <param name="villager">The villager cleaning up.</param>
+    /// <param name="item">The picked item.</param>
+    /// <param name="priority">The game's ranking for it.</param>
+    private static bool IsAcceptable(SSSGame.Villager villager, Item item, FSM_CleanupInventory.NicePriority priority)
+    {
+        if ((int)priority == 0) return true;
+        if (priority != FSM_CleanupInventory.NicePriority.EQUIPPED_EQUIPMENT) return false;
+        if (!Plugin.CleanEquippedTools.Value || !ItemEligibility.IsTool(item)) return false;
+        try
+        {
+            return villager != null && !villager.IsWarrior;
+        }
+        catch
+        {
+            return false;
         }
     }
 }
