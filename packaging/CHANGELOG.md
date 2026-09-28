@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1
+
+- **Important fix, please update.** 0.6.0 broke the game's settlement-wide
+  storage search for all villagers, haulers included, not just cleaning ones.
+  0.6.1 no longer touches that search.
+- Building storages now follow their workstation's tasks, not just warehouses.
+  A cleaning villager only puts an item into a workshop's tool storage, a
+  woodcutter's stick pile and so on if that building has a task for the item
+  (within its quantity and priority), or the building itself needs it.
+
 ## 0.6.0
 
 First public release (experimental).

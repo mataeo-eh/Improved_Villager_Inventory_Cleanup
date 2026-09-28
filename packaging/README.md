@@ -16,9 +16,11 @@ their inventory:
 - **They put away what their current job does not need**, including old tools,
   leftover materials and spare stone. Anything the job uses is kept. So are food,
   water, bags, clothing, weapons and torches.
-- **They respect your storages.** They never put an item into a full container,
-  and in a warehouse they follow each slot's task settings: an item is not placed
-  beyond its quantity limit, or where its priority is set to None.
+- **They respect your storages.** They never put an item into a full container.
+  In a warehouse they follow each slot's task settings, so an item is not placed
+  beyond its quantity limit, or where its priority is set to None. A building's
+  own storage (a workshop's tool storage, a woodcutter's stick pile) only takes
+  items that building has a task for, or needs itself.
 - **They keep at it until they are done**, instead of forgetting after one item.
   They fit it in around their work, as vanilla cleanup does.
 - **Last resort only:** if no storage anywhere will take an item, they drop it in

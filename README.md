@@ -5,7 +5,7 @@ does not need: old tools, leftover materials, spare stone. They store it in any
 storage that will take it, and drop it at the Eye of Odin (or their outpost)
 only as a last resort.
 
-> **EXPERIMENTAL (0.6.0).** Published on Thunderstore for wider testing. If you
+> **EXPERIMENTAL (0.6.1).** Published on Thunderstore for wider testing. If you
 > hit a problem, please leave a comment on the Thunderstore page or open an
 > issue here, and say which villager job and which item were involved.
 
@@ -29,7 +29,8 @@ only as a last resort.
 - **Storage rules are respected.** A cleaning villager never puts an item into
   a full container, never takes a warehouse slot past its task quantity (0
   means never), and never uses a slot whose task priority is None
-  (`Behaviour/StorageRules.cs`). The vanilla cleanup checks none of these on
+  (`Behaviour/StorageRules.cs`). A building's own storage only takes items that
+  building has a task for, or needs from this villager. The vanilla cleanup checks none of these on
   the workstation's own storage, and neither space nor priority in the
   settlement search. The 0.5.0 test showed tools going onto full racks and
   knocking another item off.
@@ -113,7 +114,8 @@ each event means.
 | 0.3.0 | Core fix validated: stale tools deposited, job tools kept. |
 | 0.4.0 | Forced Eye of Odin drops and the debug button validated in-game. Altar workers had no cleanup quest. Clearing everything needed several requests. |
 | 0.5.0 | Largely working in-game: automatic cleanup, all item types, altar keepers. Tools were put onto full racks, and warehouse task limits were ignored. |
-| 0.6.0 | Storage rules: space, task quantity and task priority. First Thunderstore release, experimental. |
+| 0.6.0 | Storage rules for space, task quantity and task priority. First Thunderstore release, experimental. **Broke the settlement storage search for all villagers**: Il2CppInterop cannot trampoline `FindStorageToDeposit` or `FindTrashcanToDeposit` (by-ref `Vector3&`/`Single&` parameters). |
+| 0.6.1 | Removes those hooks. Building storages follow their workstation's tasks (a workshop's tool storage took tools it had no task for). |
 
 Thunderstore package files (manifest, player-facing README, changelog, icon)
 are in `packaging/`. Remove the experimental notice there, and in this file,

@@ -1,6 +1,15 @@
 # Villager inventory cleanup test
 
-## Test for 0.6.0 (current)
+## Test for 0.6.1 (current)
+
+Repeat the workshop test: give a workshop villager unrelated tools, request
+a cleanup, and check the workshop's tool storage only receives tools the
+workshop has a task for. Look for `storage_refused reason=station_has_no_task_for_item`.
+Also check that haulers work normally. 0.6.0 broke their storage search: look
+in `LogOutput.log` for "During invoking native->managed trampoline", which
+should no longer appear.
+
+## Test for 0.6.0
 
 0.6.0 adds the storage rules. Watch a warehouse whose tool racks are full, or
 have task quantities and priorities set, and check that no cleaning villager

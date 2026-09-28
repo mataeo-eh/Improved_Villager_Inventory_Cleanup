@@ -28,17 +28,24 @@
 //      interop assembly), so a raw 0 means High, not "none".
 //   4. A warehouse slot with tasks but no task for this item is refused, as
 //      a hauler would not put the item there either.
+//   5. Building storage (0.6.1): a storage belonging to a workstation that is
+//      not a warehouse task slot - a workshop's tool storage, a woodcutter's
+//      stick pile - takes the item only if that workstation has a task for it
+//      (then that task's priority and quantity apply, as above), or if the
+//      station itself needs the item from this villager (IsItemNeededByVillager,
+//      IsFuelNeededByVillager), which is what vanilla cleanup uses it for. The
+//      0.6.0 test had a workshop villager fill the workshop's tool storage with
+//      tools the workshop had no task for.
 //
-// Storages that are not warehouse task slots (a chest, a station's own input)
-// only need rule 1. When every storage refuses, the item goes to the last-resort
-// drop point (Eye of Odin or outpost).
+// Storages belonging to no workstation only need rule 1. When every storage
+// refuses, the item goes to the last-resort drop point (Eye of Odin or outpost).
 //
-// The task index maps each storage interaction to its tasks. It is rebuilt from
-// every ResourceStorage in the world on the scheduler's sweep, and on demand
-// (at most every 2 s) when an unknown storage is checked. Task objects are read
-// live, so a limit the player just changed applies at once.
+// The task index maps each warehouse slot interaction to its tasks. It is
+// rebuilt from every ResourceStorage in the world on the scheduler's sweep, and
+// on demand (at most every 2 s) when an unknown storage is checked. Task
+// objects are read live, so a limit the player just changed applies at once.
 //
-// Depends on: DiagnosticLog, DiagnosticTracker, GameDescribe.
+// Depends on: DiagnosticLog, GameDescribe.
 
 using System;
 using System.Collections.Generic;
@@ -68,12 +75,17 @@ internal static class StorageRules
     /// True when <paramref name="item"/> may be deposited into
     /// <paramref name="storage"/> under the rules in the file header.
     /// Never throws; an unreadable storage is refused.
-    /// Called by: the storage patches in CleanupBehaviourPatches.
+    /// Called by: Patches/StorageRulePatches.
     /// </summary>
     /// <param name="storage">The storage interaction the villager would use.</param>
     /// <param name="item">The item being put away.</param>
-    /// <param name="villager">The villager, for the log.</param>
-    internal static bool Allows(StorageInteraction storage, Item item, Villager villager)
+    /// <param name="villager">The villager cleaning up.</param>
+    /// <param name="owner">
+    /// The workstation the storage belongs to, or null when it belongs to none
+    /// (or it is unknown). For the villager's own workstation storage this is
+    /// their workstation; in the settlement search it is the site being searched.
+    /// </param>
+    internal static bool Allows(StorageInteraction storage, Item item, Villager villager, Workstation owner)
     {
         if (storage == null || item?.info == null) return false;
         try
@@ -87,30 +99,69 @@ internal static class StorageRules
             if (!container.HasSpace(info, count))
                 return Refuse(villager, storage, item, $"full remaining={container.GetRemainingCapacity(info)}");
 
-            var tasks = TasksFor(storage);
-            if (tasks == null) return true;   // not a warehouse slot: space is enough
+            // Rules 2-4: a warehouse slot, judged by its own tasks.
+            var slotTasks = TasksFor(storage);
+            if (slotTasks != null)
+            {
+                var slotTask = FindTask(slotTasks, info);
+                if (slotTask == null) return Refuse(villager, storage, item, "no_task_for_item");
+                return CheckTask(slotTask, container, info, count, villager, storage, item);
+            }
 
-            var task = FindTask(tasks, info);
-            if (task == null) return Refuse(villager, storage, item, "no_task_for_item");
+            // Rule 5: any other storage of a workstation, judged by the station's tasks.
+            if (owner == null) return true;
+            var stationTask = FindStationTask(owner, info);
+            if (stationTask != null)
+                return CheckTask(stationTask, container, info, count, villager, storage, item);
 
-            // Rule 3: priority None means "do not bring this here".
-            var priority = task.priority;
-            if (priority >= PriorityNone || priority < 0)
-                return Refuse(villager, storage, item, $"task_priority_none raw_priority={priority}");
+            if (villager != null && (owner.IsItemNeededByVillager(info, villager) || owner.IsFuelNeededByVillager(info, villager)))
+                return true;
 
-            // Rule 2: stay within the task's quantity (0 = never).
-            var limit = task.itemInfoQuantity?.quantity ?? 0;
-            var existing = container.GetItemCount(info);
-            if (existing + count > limit)
-                return Refuse(villager, storage, item, $"task_quantity existing={existing} adding={count} limit={limit}");
-
-            return true;
+            return Refuse(villager, storage, item,
+                $"station_has_no_task_for_item station={DiagnosticLog.Quote(owner.name)}");
         }
         catch (Exception exception)
         {
             DiagnosticLog.WriteException("storage_rules_failed", exception);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Applies a task's priority (None refuses) and quantity (the stack must
+    /// fit within it; 0 refuses) to this container. Called by: Allows.
+    /// </summary>
+    private static bool CheckTask(WorkstationTaskData task, ItemContainer container, ItemInfo info, int count,
+        Villager villager, StorageInteraction storage, Item item)
+    {
+        var priority = task.priority;
+        if (priority >= PriorityNone || priority < 0)
+            return Refuse(villager, storage, item, $"task_priority_none raw_priority={priority}");
+
+        var limit = task.itemInfoQuantity?.quantity ?? 0;
+        var existing = container.GetItemCount(info);
+        if (existing + count > limit)
+            return Refuse(villager, storage, item, $"task_quantity existing={existing} adding={count} limit={limit}");
+
+        return true;
+    }
+
+    /// <summary>
+    /// The workstation's own task for this item (a crafting order, a gather
+    /// quota...), or null. Only tasks that name this exact item count.
+    /// Called by: Allows.
+    /// </summary>
+    private static WorkstationTaskData FindStationTask(Workstation owner, ItemInfo info)
+    {
+        var tasks = owner.GetWorkstationTaskDatas();
+        if (tasks == null) return null;
+        for (var index = 0; index < tasks.Count; index++)
+        {
+            var task = tasks[index];
+            var taskInfo = task?.itemInfoQuantity?.itemInfo;
+            if (taskInfo != null && taskInfo.id == info.id) return task;
+        }
+        return null;
     }
 
     /// <summary>
