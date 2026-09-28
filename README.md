@@ -5,6 +5,10 @@ does not need: old tools, leftover materials, spare stone. They store it in any
 storage that will take it, and drop it at the Eye of Odin (or their outpost)
 only as a last resort.
 
+> **EXPERIMENTAL (0.6.0).** Published on Thunderstore for wider testing. If you
+> hit a problem, please leave a comment on the Thunderstore page or open an
+> issue here, and say which villager job and which item were involved.
+
 ## What it does
 
 - **Anything unneeded is cleaned, not just tools.** A stone cutter moved to
@@ -22,6 +26,13 @@ only as a last resort.
   and asks again while they still carry something unneeded. A villager whose
   cleanup cannot remove anything is checked less and less often, so nobody
   loops.
+- **Storage rules are respected.** A cleaning villager never puts an item into
+  a full container, never takes a warehouse slot past its task quantity (0
+  means never), and never uses a slot whose task priority is None
+  (`Behaviour/StorageRules.cs`). The vanilla cleanup checks none of these on
+  the workstation's own storage, and neither space nor priority in the
+  settlement search. The 0.5.0 test showed tools going onto full racks and
+  knocking another item off.
 - **Storage first, anywhere in the settlement.** The storage search radius is
   lifted, so any storage that accepts the item counts.
 - **Last resort: the Eye of Odin.** If no storage anywhere takes the item, the
@@ -101,6 +112,11 @@ each event means.
 | 0.2.0 | Did nothing: it forced a flag the gate above never reads. |
 | 0.3.0 | Core fix validated: stale tools deposited, job tools kept. |
 | 0.4.0 | Forced Eye of Odin drops and the debug button validated in-game. Altar workers had no cleanup quest. Clearing everything needed several requests. |
-| 0.5.0 | Not yet tested. |
+| 0.5.0 | Largely working in-game: automatic cleanup, all item types, altar keepers. Tools were put onto full racks, and warehouse task limits were ignored. |
+| 0.6.0 | Storage rules: space, task quantity and task priority. First Thunderstore release, experimental. |
+
+Thunderstore package files (manifest, player-facing README, changelog, icon)
+are in `packaging/`. Remove the experimental notice there, and in this file,
+for 1.0.
 
 The test logs are archived in `Aska_Mods/logs/Improved_Villager_Inventory_Cleanup/`.

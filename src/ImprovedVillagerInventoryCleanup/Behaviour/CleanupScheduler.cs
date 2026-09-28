@@ -118,6 +118,7 @@ internal static class CleanupScheduler
         try
         {
             ApplyStorageSearchDistance();
+            StorageRules.RebuildIndex();
             foreach (var villager in UnityEngine.Object.FindObjectsOfType<Villager>())
                 Pending.Enqueue(villager);
         }

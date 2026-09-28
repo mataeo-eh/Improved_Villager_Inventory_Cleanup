@@ -27,7 +27,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "aska.improved.villager.inventory.cleanup";
     public const string PluginName = "Improved Villager Inventory Cleanup";
-    public const string PluginVersion = "0.5.0";
+    public const string PluginVersion = "0.6.0";
 
     internal static new ManualLogSource Log { get; private set; }
 

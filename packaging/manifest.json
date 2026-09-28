@@ -1,0 +1,9 @@
+{
+  "name": "Improved_Villager_Inventory_Cleanup",
+  "version_number": "0.0.0",
+  "website_url": "https://github.com/mataeo-eh/Improved_Villager_Inventory_Cleanup",
+  "description": "EXPERIMENTAL. Villagers put away tools and items their current job no longer needs, into storage that has room and allows it, instead of carrying them forever after a job change.",
+  "dependencies": [
+    "BepInEx-BepInExPack_IL2CPP-6.0.755"
+  ]
+}

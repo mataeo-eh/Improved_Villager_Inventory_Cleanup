@@ -1,6 +1,15 @@
 # Villager inventory cleanup test
 
-## Test for 0.5.0 (current)
+## Test for 0.6.0 (current)
+
+0.6.0 adds the storage rules. Watch a warehouse whose tool racks are full, or
+have task quantities and priorities set, and check that no cleaning villager
+puts a tool there. Items no storage accepts should go to the Eye of Odin.
+`storage_refused` lines give the reason each storage was refused: `full`,
+`task_quantity`, `task_priority_none` (with the raw priority number) or
+`no_task_for_item`.
+
+## Test for 0.5.0
 
 0.4.0 proved cleanup works and that villagers reach the Eye of Odin. 0.5.0
 makes it automatic and general. Storage comes first, and the Eye of Odin (or
