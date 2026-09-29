@@ -5,7 +5,7 @@ does not need: old tools, leftover materials, spare stone. They store it in any
 storage that will take it, and drop it at the Eye of Odin (or their outpost)
 only as a last resort.
 
-> **EXPERIMENTAL (0.6.2).** Published on Thunderstore for wider testing. If you
+> **EXPERIMENTAL (0.6.3).** Published on Thunderstore for wider testing. If you
 > hit a problem, please leave a comment on the Thunderstore page or open an
 > issue here, and say which villager job and which item were involved.
 
@@ -25,8 +25,9 @@ only as a last resort.
   the run ends or is interrupted. After a completed pass removes an item (or
   part of a stack), the mod immediately requests the next pass if unneeded
   items remain. The villager does not wait for the 20-second inventory sweep.
-  Normal quest priorities still apply. Interrupted passes fall back to the
-  timer; passes that remove nothing back off up to 10 minutes.
+  Normal quest priorities still apply. Once a pass removes nothing, the mod
+  stops requesting cleanup for that villager. A later game-triggered or manual
+  request can still run; if it removes an item, prompt continuation resumes.
 - **A manual cleanup button, on by default.** Open a villager's menu and click
   "Clean inventory now". Press **F7** to show or hide the button; the choice is
   saved. Both visibility and the hotkey can be changed in the config.
@@ -74,7 +75,7 @@ tool the job does not need. The source files' headers explain each piece.
 | Cleanup | `ExcludedItemCategories` | food, elements, bags, armor, weapons, torches | Never cleaned. |
 | Cleanup | `CleanEquippedTools` | `true` | Clean an equipped tool the job does not need. |
 | Cleanup | `KeepCleaningUntilDone` | `true` | Immediately continue successful passes while unneeded items remain. |
-| Cleanup | `RecheckIntervalSeconds` | `20` | Background inventory checks and fallback retries, not the delay between successful passes. |
+| Cleanup | `RecheckIntervalSeconds` | `20` | Background inventory checks until a no-progress pass; successful passes continue immediately. |
 | Cleanup | `AddCleanupToStationsWithout` | `true` | Give altar workers, and similar, a cleanup quest. |
 | Cleanup | `StorageSearchDistance` | `100000` | Storage search radius. `0` keeps the game's own. |
 | LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
@@ -134,6 +135,7 @@ each event means.
 | 0.6.0 | Storage rules for space, task quantity and task priority. First Thunderstore release, experimental. **Broke the settlement storage search for all villagers**: Il2CppInterop cannot trampoline `FindStorageToDeposit` or `FindTrashcanToDeposit` (by-ref `Vector3&`/`Single&` parameters). |
 | 0.6.1 | Removes those hooks. Building storages follow their workstation's tasks (a workshop's tool storage took tools it had no task for). |
 | 0.6.2 | Default-on, saved F7 button toggle; successful cleanup passes immediately request the next pass. Partial-stack deposits count as progress; unsuccessful passes back off. In-game validation pending. |
+| 0.6.3 | A pass that removes nothing stops this mod's automatic requests for that villager. A later game or manual cleanup can still run and, if productive, resume prompt continuation. In-game validation pending. |
 
 Thunderstore package files (manifest, player-facing README, changelog, icon)
 are in `packaging/`. Remove the experimental notice there, and in this file,

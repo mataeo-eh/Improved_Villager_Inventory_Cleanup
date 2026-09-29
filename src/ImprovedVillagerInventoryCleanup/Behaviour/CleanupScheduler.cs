@@ -18,9 +18,9 @@
 //    Workstation.IsItemNeededByVillager (and IsFuelNeededByVillager). If
 //    anything eligible is not needed, the villager's cleanup is requested with
 //    the ordinary (not "important") priority, so it slots in around work the
-//    way a vanilla job-change cleanup does. A villager whose cleanup removed
-//    nothing is re-checked less and less often (doubling, up to 10 minutes),
-//    so an item the cleanup cannot remove never causes a loop.
+//    way a vanilla job-change cleanup does. After a pass removes nothing, the
+//    scheduler stops requesting that villager's cleanup. A later game or manual
+//    request can still start it; a productive pass re-enables continuation.
 //
 // 2. Missing cleanup quests (AddCleanupToStationsWithout). Each station type
 //    builds its own quests in Awake, and some never build a cleanup quest - the
@@ -53,14 +53,6 @@ namespace ImprovedVillagerInventoryCleanup.Behaviour;
 
 internal static class CleanupScheduler
 {
-    /// <summary>Per-villager back-off, so an unremovable item never loops.</summary>
-    private sealed class Backoff
-    {
-        internal float NextAllowedAt;
-        internal float DelaySeconds;
-        internal UnneededInventory LastRequest;
-    }
-
     private sealed class UnneededInventory
     {
         internal readonly List<string> Names = new();
@@ -83,15 +75,13 @@ internal static class CleanupScheduler
         internal IntPtr Workstation;
     }
 
-    private const float MaxBackoffSeconds = 600f;
-
     // Villagers still to check in the current sweep; a few are checked per
     // frame so a sweep never causes a hitch.
     private const int VillagersPerFrame = 3;
     private static readonly Queue<Villager> Pending = new();
     private static float _nextSweepAt;
 
-    private static readonly Dictionary<IntPtr, Backoff> BackoffByVillager = new();
+    private static readonly Dictionary<IntPtr, CleanupFlowState> FlowByVillager = new();
     private static readonly Dictionary<IntPtr, CleanupPass> PassByData = new();
     private static readonly Dictionary<IntPtr, Injected> InjectedByVillager = new();
 
@@ -123,7 +113,7 @@ internal static class CleanupScheduler
             var villager = Pending.Dequeue();
             try
             {
-                if (villager != null) CheckVillager(villager, now);
+                if (villager != null) CheckVillager(villager);
             }
             catch (Exception exception)
             {
@@ -151,7 +141,7 @@ internal static class CleanupScheduler
     /// <summary>
     /// Everything the scheduler does for one villager. Called by: Tick.
     /// </summary>
-    private static void CheckVillager(Villager villager, float now)
+    private static void CheckVillager(Villager villager)
     {
         if (VoyageGuard.IsExempt(villager)) return;
 
@@ -161,39 +151,17 @@ internal static class CleanupScheduler
 
         if (Plugin.AddCleanupToStationsWithout.Value) EnsureCleanupQuest(villager, workstation, runner);
         if (!Plugin.KeepCleaningUntilDone.Value || workstation == null) return;
+        if (FlowByVillager.TryGetValue(villager.Pointer, out var flow) && !flow.AllowAutomaticRequest) return;
         if (IsCleanupActiveOrRequested(runner)) return;
 
         var unneeded = FindUnneeded(villager, workstation);
-        var key = villager.Pointer;
-        if (!BackoffByVillager.TryGetValue(key, out var backoff))
-        {
-            backoff = new Backoff { DelaySeconds = RecheckDelay };
-            BackoffByVillager[key] = backoff;
-        }
-
-        if (unneeded.Count == 0)
-        {
-            // Clean: forget any back-off, so a later job change is acted on promptly.
-            BackoffByVillager.Remove(key);
-            return;
-        }
-        if (now < backoff.NextAllowedAt) return;
-
-        // Successful deposits reset the delay; completed no-progress passes
-        // increase it in OnCleanupStopped, once per pass rather than per sweep.
-        var madeProgress = backoff.LastRequest == null ||
-            CleanupProgress.MadeProgress(backoff.LastRequest.Quantities, unneeded.Quantities);
-        if (madeProgress) backoff.DelaySeconds = RecheckDelay;
-        backoff.NextAllowedAt = now + backoff.DelaySeconds;
-        backoff.LastRequest = unneeded;
+        if (unneeded.Count == 0) return;
 
         DiagnosticLog.Write("unneeded_items_found",
             $"{GameDescribe.Villager(villager)} count={unneeded.Count} items={DiagnosticLog.Quote(string.Join(", ", unneeded.Names))} " +
-            $"progress={madeProgress} next_check_seconds={backoff.DelaySeconds:0}");
+            "automatic_request=true");
         ManualCleanup.RequestCleanup(villager, important: false, reason: "unneeded_items");
     }
-
-    private static float RecheckDelay => Mathf.Clamp(Plugin.RecheckIntervalSeconds.Value, 5f, MaxBackoffSeconds);
 
     /// <summary>Records what this pass can remove, including partial stacks and its original priority.</summary>
     internal static void OnCleanupStarted(CleanupInventoryQuest.CleanupInventoryQuestData data)
@@ -215,9 +183,6 @@ internal static class CleanupScheduler
                 Villager = villager, Workstation = workstation.Pointer,
                 Before = before, Important = data.Important
             };
-            if (!BackoffByVillager.TryGetValue(villager.Pointer, out var backoff))
-                BackoffByVillager[villager.Pointer] = backoff = new Backoff { DelaySeconds = RecheckDelay };
-            backoff.LastRequest = before;
         }
         catch (Exception exception)
         {
@@ -241,27 +206,17 @@ internal static class CleanupScheduler
             if (villager == null || VoyageGuard.IsExempt(villager)) return;
             var workstation = villager.GetWorkstation();
             if (workstation == null || workstation.Pointer != pass.Workstation) return;
-            var runner = data.QuestRunner;
-            var quest = data.Quest;
-            if (runner == null || quest == null || runner.GetQuestData(quest)?.Pointer != data.Pointer) return;
-
             var after = FindUnneeded(villager, workstation);
-            if (after.Count == 0)
-            {
-                BackoffByVillager.Remove(villager.Pointer);
-                return;
-            }
-
             var madeProgress = CleanupProgress.MadeProgress(pass.Before.Quantities, after.Quantities);
             var completed = data.questStatus == QuestStatus.Completed;
-            var backoff = BackoffByVillager[villager.Pointer];
-            backoff.DelaySeconds = madeProgress ? RecheckDelay :
-                completed ? Mathf.Min(Mathf.Max(RecheckDelay, backoff.DelaySeconds) * 2f, MaxBackoffSeconds) :
-                Mathf.Max(RecheckDelay, backoff.DelaySeconds);
-            backoff.NextAllowedAt = Time.realtimeSinceStartup + backoff.DelaySeconds;
-            backoff.LastRequest = after;
+            if (!FlowByVillager.TryGetValue(villager.Pointer, out var flow))
+                FlowByVillager[villager.Pointer] = flow = new CleanupFlowState();
+            flow.FinishedPass(madeProgress);
 
-            var continueNow = completed && madeProgress;
+            var runner = data.QuestRunner;
+            var quest = data.Quest;
+            var registered = runner != null && quest != null && runner.GetQuestData(quest)?.Pointer == data.Pointer;
+            var continueNow = completed && madeProgress && after.Count > 0 && registered;
             if (continueNow)
             {
                 data.CleanupRequested = true;
@@ -270,7 +225,7 @@ internal static class CleanupScheduler
             DiagnosticLog.Write("cleanup_pass_finished",
                 $"{GameDescribe.Villager(villager)} status={data.questStatus} remaining={after.Count} " +
                 $"progress={madeProgress} continue_now={continueNow} important={pass.Important} " +
-                $"retry_seconds={(continueNow ? 0f : backoff.DelaySeconds):0}");
+                $"automatic_requests_allowed={flow.AllowAutomaticRequest}");
         }
         catch (Exception exception)
         {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+- After a cleanup pass removes nothing, the mod stops automatically requesting
+  another cleanup for that villager. The game may still request one on its own,
+  and the manual button still works.
+- If a later game-triggered or manual pass removes an item, immediate
+  continuation resumes while unneeded items remain.
+
 ## 0.6.2
 
 - The "Clean inventory now" button is on by default. F7 shows or hides it in

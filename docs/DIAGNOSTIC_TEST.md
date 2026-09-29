@@ -1,9 +1,26 @@
 # Villager inventory cleanup test
 
-## Test for 0.6.2 (current)
+## Test for 0.6.3 (current)
+
+1. Give a villager an eligible item that their cleanup cannot remove. After one
+   pass with `progress=False`, wait several `RecheckIntervalSeconds` periods.
+   There should be no further mod `cleanup_requested reason=unneeded_items` for
+   that villager. The log should show `automatic_requests_allowed=False`.
+2. Trigger cleanup through a normal game event (such as changing the job) or
+   the manual button. The cleanup must still start. If it removes an eligible
+   item and others remain, the log should show `continue_now=True` and the
+   next pass should start promptly. If it removes nothing, mod requests must
+   remain suppressed.
+3. Interrupt a cleanup before it removes anything. The mod must likewise stop
+   its automatic requests for that villager, leaving future requests to the
+   game or manual button.
+4. Check that other villagers' cleanup still runs normally, and that the F7
+   button toggle, storage rules, haulers, and voyage behavior remain intact.
+
+## Test for 0.6.2
 
 1. Launch the `Test_Mods` profile and open a villager's menu. The cleanup button
-   should be visible on the first 0.6.2 launch even if the old debug setting was false.
+   should be visible on the first 0.6.2+ launch even if the old debug setting was false.
 2. Press F7 once to hide the button, then again to show it. Close the menu and
    toggle F7; reopen the menu to confirm it also works while the menu is closed.
    Relaunch with it hidden to check the saved `[UI] ShowCleanupButton` value.
@@ -12,11 +29,11 @@
 4. Give a worker several unneeded tools and a stack of spare materials. Request
    cleanup once. After each successful pass, they should start the next without
    a 10-20 second detour to work. A partial-stack deposit should continue too.
-5. Look for `cleanup_pass_finished progress=True continue_now=True retry_seconds=0`
+5. Look for `cleanup_pass_finished progress=True continue_now=True`
    followed promptly by another `cleanup_quest_started` for that villager.
-6. A pass that removes nothing should log `continue_now=False`, with retries
-   backing off to at most 600 seconds. Change job during a pass and check that
-   the old cleanup does not immediately restart. Urgent needs should still win.
+6. In 0.6.2, a pass that removed nothing logged `continue_now=False` and
+   backed off retries up to 600 seconds. Version 0.6.3 replaces those retries
+   with the vanilla-timing rule above. Urgent needs should still win.
 7. Set `KeepCleaningUntilDone=false`, then `EnableImprovedCleanup=false` to check
    that immediate continuation stops. Restore the defaults afterwards.
 8. Repeat the storage checks below and check normal haulers and voyage crews.
@@ -66,7 +83,7 @@ Results to check in the log:
 
 | Event | Meaning |
 | --- | --- |
-| `unneeded_items_found` | The scheduler saw unneeded items and requested a cleanup. It lists the items, whether the last request made progress, and when the next check is. |
+| `unneeded_items_found` | The scheduler saw unneeded items and requested a cleanup before any no-progress pass suppressed automatic requests for this villager. |
 | `cleanup_requested` | A cleanup was requested (`reason=unneeded_items` or `button`), with its priority. |
 | `cleanup_quest_added` / `cleanup_quest_removed` | A worker of a station without a cleanup quest (altars) was given one, or it was taken away after a job change. |
 | `item_admission_selected` | An unneeded item got past the vanilla gate and was picked. |
@@ -84,8 +101,8 @@ These outcomes mean something is wrong:
   firekeeper's wood). Report the item and job. The quick fix is to add the
   category to `ExcludedItemCategories`.
 - **A villager keeps starting and stopping cleanup with no items leaving.**
-  Look for repeated `unneeded_items_found` with `progress=False`. The back-off
-  should stretch the checks out to 10 minutes.
+  Look for `cleanup_pass_finished progress=False automatic_requests_allowed=False`.
+  Further starts should come from the game or manual button, not the mod timer.
 - **A voyage crew drops items or walks home.** Check that `voyage_state_changed
   away=True` was logged for them.
 

@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/ImprovedVillagerInventoryCleanup/Behaviour/CleanupProgress.cs" Link="CleanupProgress.cs" />
+    <Compile Include="../../src/ImprovedVillagerInventoryCleanup/Behaviour/CleanupFlowState.cs" Link="CleanupFlowState.cs" />
   </ItemGroup>
 </Project>

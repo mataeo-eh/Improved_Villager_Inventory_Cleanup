@@ -37,3 +37,15 @@ for (var i = 1; i < passes.Length; i++)
     Check($"Multi-pass cleanup {i}", i < passes.Length - 1, passes[i - 1], passes[i]);
 
 Console.WriteLine($"{passed} cleanup progress scenarios passed.");
+
+var flow = new CleanupFlowState();
+if (!flow.AllowAutomaticRequest) throw new Exception("The first automatic cleanup must be allowed.");
+flow.FinishedPass(madeProgress: false);
+if (flow.AllowAutomaticRequest) throw new Exception("A no-progress pass must disable automatic requests.");
+flow.FinishedPass(madeProgress: false);
+if (flow.AllowAutomaticRequest) throw new Exception("Another failed game-triggered pass must stay on vanilla timing.");
+flow.FinishedPass(madeProgress: true);
+if (!flow.AllowAutomaticRequest) throw new Exception("A productive game-triggered pass must restore continuation.");
+flow.FinishedPass(madeProgress: false);
+if (flow.AllowAutomaticRequest) throw new Exception("A later no-progress pass must stop automatic requests again.");
+Console.WriteLine("PASS: per-villager vanilla timing after no progress and recovery after progress");

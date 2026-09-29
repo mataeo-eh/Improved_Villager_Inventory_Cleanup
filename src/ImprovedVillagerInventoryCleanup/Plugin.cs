@@ -27,7 +27,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "aska.improved.villager.inventory.cleanup";
     public const string PluginName = "Improved Villager Inventory Cleanup";
-    public const string PluginVersion = "0.6.2";
+    public const string PluginVersion = "0.6.3";
 
     internal static new ManualLogSource Log { get; private set; }
 
@@ -127,10 +127,10 @@ public sealed class Plugin : BasePlugin
             "Never applies to warriors, whose tools can be weapons.");
         KeepCleaningUntilDone = Config.Bind("Cleanup", "KeepCleaningUntilDone", true,
             "After a successful cleanup pass, immediately request the next pass if unneeded items remain. " +
-            "Interrupted or unsuccessful passes fall back to periodic checks with back-off.");
+            "After a pass removes nothing, wait for the game or player to request cleanup again.");
         RecheckIntervalSeconds = Config.Bind("Cleanup", "RecheckIntervalSeconds", 20f,
-            "How often every villager is checked for unneeded items. A villager whose cleanup could not " +
-            "remove anything is checked less and less often, up to 10 minutes, so nobody loops.");
+            "How often villagers are checked for unneeded items until a no-progress pass. " +
+            "After that, the mod stops asking that villager to clean; vanilla or manual requests still work.");
         AddCleanupToStationsWithout = Config.Bind("Cleanup", "AddCleanupToStationsWithout", true,
             "Give workers of stations that have no cleanup quest of their own (such as the fire and air " +
             "altars) the game's standard cleanup quest.");

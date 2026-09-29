@@ -24,7 +24,9 @@ their inventory:
 - **They keep at it until they are done**, instead of forgetting after one item.
   After a successful pass they immediately request another if unneeded items
   remain, without waiting for the periodic inventory check. Normal quest
-  priorities still apply. A pass that removes nothing waits longer before retrying.
+  priorities still apply. If a pass removes nothing, this mod stops requesting
+  cleanup for that villager. The game's own cleanup triggers and the manual
+  button still work; a later successful pass resumes prompt continuation.
 - **Clean inventory now:** open a villager's menu to request a cleanup manually.
   The button is on by default. Press **F7** to show or hide it; your choice is saved.
 - **Last resort only:** if no storage anywhere will take an item, they drop it in
@@ -46,7 +48,7 @@ their inventory:
 | Cleanup | `ExcludedItemCategories` | food, water, bags, armor, weapons, torches | Never put away. |
 | Cleanup | `CleanEquippedTools` | `true` | Put away a held tool the job does not need. |
 | Cleanup | `KeepCleaningUntilDone` | `true` | Immediately continue successful passes until nothing unneeded is left. |
-| Cleanup | `RecheckIntervalSeconds` | `20` | Background checks and fallback retries; successful passes continue immediately. |
+| Cleanup | `RecheckIntervalSeconds` | `20` | Background checks until a no-progress pass; successful passes continue immediately. |
 | Cleanup | `StorageSearchDistance` | `100000` | How far to look for storage. `0` keeps the game's own limit. |
 | LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
 | LastResort | `StandOffDistance` | `4` | Metres in front of the Eye or outpost. |
