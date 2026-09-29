@@ -1,4 +1,5 @@
 using HarmonyLib;
+using ImprovedVillagerInventoryCleanup.Behaviour;
 using ImprovedVillagerInventoryCleanup.Diagnostics;
 using SandSailorStudio.Inventory;
 using SSSGame;
@@ -49,6 +50,7 @@ internal static class CleanupQuestStartPatch
 {
     private static void Postfix(CleanupInventoryQuest.CleanupInventoryQuestData __instance)
     {
+        CleanupScheduler.OnCleanupStarted(__instance);
         var villager = __instance?.GetVillager();
         if (villager == null) return;
 
@@ -67,6 +69,9 @@ internal static class CleanupQuestStartPatch
 [HarmonyPatch(typeof(CleanupInventoryQuest.CleanupInventoryQuestData), nameof(CleanupInventoryQuest.CleanupInventoryQuestData.Stop))]
 internal static class CleanupQuestStopPatch
 {
+    private static void Postfix(CleanupInventoryQuest.CleanupInventoryQuestData __instance) =>
+        CleanupScheduler.OnCleanupStopped(__instance);
+
     private static void Prefix(CleanupInventoryQuest.CleanupInventoryQuestData __instance)
     {
         var villager = __instance?.GetVillager();

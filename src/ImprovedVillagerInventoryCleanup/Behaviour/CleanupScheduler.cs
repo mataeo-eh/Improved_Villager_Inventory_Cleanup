@@ -7,9 +7,13 @@
 // cleanup quest *runs*. Vanilla only requests a cleanup on a job, schedule or
 // viking-status change, and forgets the request when a run ends or is
 // interrupted. In the 0.4.0 test that meant pressing the button several times
-// to clear all of a villager's tools. Three jobs, run on a timer:
+// to clear all of a villager's tools. Three jobs:
 //
-// 1. Keep cleaning (KeepCleaningUntilDone). Every RecheckIntervalSeconds each
+// 1. Keep cleaning (KeepCleaningUntilDone). A completed pass that removed an
+//    eligible item re-arms its quest before the runner ranks the next task.
+//    No recursive Start/Stop or ReevaluateQuest inside a Stop callback: the
+//    native QuestRunner.FSMQuestStop performs that notification itself after
+//    clearing the active quest and stopping its data. Periodically, each
 //    villager's inventory is checked with the game's own test,
 //    Workstation.IsItemNeededByVillager (and IsFuelNeededByVillager). If
 //    anything eligible is not needed, the villager's cleanup is requested with
@@ -54,7 +58,22 @@ internal static class CleanupScheduler
     {
         internal float NextAllowedAt;
         internal float DelaySeconds;
-        internal int CountAtLastRequest = -1;
+        internal UnneededInventory LastRequest;
+    }
+
+    private sealed class UnneededInventory
+    {
+        internal readonly List<string> Names = new();
+        internal readonly Dictionary<IntPtr, int> Quantities = new();
+        internal int Count => Quantities.Count;
+    }
+
+    private sealed class CleanupPass
+    {
+        internal Villager Villager;
+        internal IntPtr Workstation;
+        internal UnneededInventory Before;
+        internal bool Important;
     }
 
     /// <summary>A cleanup quest this mod added to one villager.</summary>
@@ -73,6 +92,7 @@ internal static class CleanupScheduler
     private static float _nextSweepAt;
 
     private static readonly Dictionary<IntPtr, Backoff> BackoffByVillager = new();
+    private static readonly Dictionary<IntPtr, CleanupPass> PassByData = new();
     private static readonly Dictionary<IntPtr, Injected> InjectedByVillager = new();
 
     // One injected quest per station, shared by its workers, as vanilla does.
@@ -147,31 +167,115 @@ internal static class CleanupScheduler
         var key = villager.Pointer;
         if (!BackoffByVillager.TryGetValue(key, out var backoff))
         {
-            backoff = new Backoff { DelaySeconds = Plugin.RecheckIntervalSeconds.Value };
+            backoff = new Backoff { DelaySeconds = RecheckDelay };
             BackoffByVillager[key] = backoff;
         }
 
         if (unneeded.Count == 0)
         {
             // Clean: forget any back-off, so a later job change is acted on promptly.
-            backoff.CountAtLastRequest = -1;
-            backoff.DelaySeconds = Plugin.RecheckIntervalSeconds.Value;
+            BackoffByVillager.Remove(key);
             return;
         }
         if (now < backoff.NextAllowedAt) return;
 
-        // No progress since the last request? Wait longer before the next one.
-        var madeProgress = backoff.CountAtLastRequest < 0 || unneeded.Count < backoff.CountAtLastRequest;
-        backoff.DelaySeconds = madeProgress
-            ? Plugin.RecheckIntervalSeconds.Value
-            : Mathf.Min(backoff.DelaySeconds * 2f, MaxBackoffSeconds);
+        // Successful deposits reset the delay; completed no-progress passes
+        // increase it in OnCleanupStopped, once per pass rather than per sweep.
+        var madeProgress = backoff.LastRequest == null ||
+            CleanupProgress.MadeProgress(backoff.LastRequest.Quantities, unneeded.Quantities);
+        if (madeProgress) backoff.DelaySeconds = RecheckDelay;
         backoff.NextAllowedAt = now + backoff.DelaySeconds;
-        backoff.CountAtLastRequest = unneeded.Count;
+        backoff.LastRequest = unneeded;
 
         DiagnosticLog.Write("unneeded_items_found",
-            $"{GameDescribe.Villager(villager)} count={unneeded.Count} items={DiagnosticLog.Quote(string.Join(", ", unneeded))} " +
+            $"{GameDescribe.Villager(villager)} count={unneeded.Count} items={DiagnosticLog.Quote(string.Join(", ", unneeded.Names))} " +
             $"progress={madeProgress} next_check_seconds={backoff.DelaySeconds:0}");
         ManualCleanup.RequestCleanup(villager, important: false, reason: "unneeded_items");
+    }
+
+    private static float RecheckDelay => Mathf.Clamp(Plugin.RecheckIntervalSeconds.Value, 5f, MaxBackoffSeconds);
+
+    /// <summary>Records what this pass can remove, including partial stacks and its original priority.</summary>
+    internal static void OnCleanupStarted(CleanupInventoryQuest.CleanupInventoryQuestData data)
+    {
+        if (data == null) return;
+        PassByData.Remove(data.Pointer);
+        if (!Plugin.EnableImprovedCleanup.Value || !Plugin.KeepCleaningUntilDone.Value) return;
+
+        try
+        {
+            var villager = data.GetVillager();
+            if (villager == null || VoyageGuard.IsExempt(villager)) return;
+            var workstation = villager.GetWorkstation();
+            if (workstation == null) return;
+
+            var before = FindUnneeded(villager, workstation);
+            PassByData[data.Pointer] = new CleanupPass
+            {
+                Villager = villager, Workstation = workstation.Pointer,
+                Before = before, Important = data.Important
+            };
+            if (!BackoffByVillager.TryGetValue(villager.Pointer, out var backoff))
+                BackoffByVillager[villager.Pointer] = backoff = new Backoff { DelaySeconds = RecheckDelay };
+            backoff.LastRequest = before;
+        }
+        catch (Exception exception)
+        {
+            DiagnosticLog.WriteException("cleanup_pass_start_failed", exception);
+        }
+    }
+
+    /// <summary>
+    /// Re-arms a completed pass before FSMQuestStop's native quest notification.
+    /// Urgent needs still win normal quest ranking. Interruptions, changed jobs,
+    /// voyages, and unsuccessful passes do not immediately restart cleanup.
+    /// </summary>
+    internal static void OnCleanupStopped(CleanupInventoryQuest.CleanupInventoryQuestData data)
+    {
+        if (data == null || !PassByData.Remove(data.Pointer, out var pass)) return;
+        if (!Plugin.EnableImprovedCleanup.Value || !Plugin.KeepCleaningUntilDone.Value) return;
+
+        try
+        {
+            var villager = pass.Villager;
+            if (villager == null || VoyageGuard.IsExempt(villager)) return;
+            var workstation = villager.GetWorkstation();
+            if (workstation == null || workstation.Pointer != pass.Workstation) return;
+            var runner = data.QuestRunner;
+            var quest = data.Quest;
+            if (runner == null || quest == null || runner.GetQuestData(quest)?.Pointer != data.Pointer) return;
+
+            var after = FindUnneeded(villager, workstation);
+            if (after.Count == 0)
+            {
+                BackoffByVillager.Remove(villager.Pointer);
+                return;
+            }
+
+            var madeProgress = CleanupProgress.MadeProgress(pass.Before.Quantities, after.Quantities);
+            var completed = data.questStatus == QuestStatus.Completed;
+            var backoff = BackoffByVillager[villager.Pointer];
+            backoff.DelaySeconds = madeProgress ? RecheckDelay :
+                completed ? Mathf.Min(Mathf.Max(RecheckDelay, backoff.DelaySeconds) * 2f, MaxBackoffSeconds) :
+                Mathf.Max(RecheckDelay, backoff.DelaySeconds);
+            backoff.NextAllowedAt = Time.realtimeSinceStartup + backoff.DelaySeconds;
+            backoff.LastRequest = after;
+
+            var continueNow = completed && madeProgress;
+            if (continueNow)
+            {
+                data.CleanupRequested = true;
+                data.Important = pass.Important;
+            }
+            DiagnosticLog.Write("cleanup_pass_finished",
+                $"{GameDescribe.Villager(villager)} status={data.questStatus} remaining={after.Count} " +
+                $"progress={madeProgress} continue_now={continueNow} important={pass.Important} " +
+                $"retry_seconds={(continueNow ? 0f : backoff.DelaySeconds):0}");
+        }
+        catch (Exception exception)
+        {
+            DiagnosticLog.WriteException("cleanup_pass_stop_failed", exception);
+        }
     }
 
     /// <summary>
@@ -195,10 +299,10 @@ internal static class CleanupScheduler
     /// items only count if they are tools (and the villager is not a warrior).
     /// Called by: CheckVillager.
     /// </summary>
-    /// <returns>Names of the unneeded items (empty when clean).</returns>
-    private static List<string> FindUnneeded(Villager villager, Workstation workstation)
+    /// <returns>Names and per-item quantities of unneeded inventory (empty when clean).</returns>
+    private static UnneededInventory FindUnneeded(Villager villager, Workstation workstation)
     {
-        var result = new List<string>();
+        var result = new UnneededInventory();
         var items = villager.GetInventory()?.GetAllItems();
         if (items == null) return result;
 
@@ -217,7 +321,8 @@ internal static class CleanupScheduler
 
             if (workstation.IsItemNeededByVillager(info, villager)) continue;
             if (workstation.IsFuelNeededByVillager(info, villager)) continue;
-            result.Add(info.Name);
+            result.Names.Add(info.Name);
+            result.Quantities[item.Pointer] = Math.Max(1, item.count);
         }
         return result;
     }

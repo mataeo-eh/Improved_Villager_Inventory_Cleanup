@@ -27,7 +27,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "aska.improved.villager.inventory.cleanup";
     public const string PluginName = "Improved Villager Inventory Cleanup";
-    public const string PluginVersion = "0.6.1";
+    public const string PluginVersion = "0.6.2";
 
     internal static new ManualLogSource Log { get; private set; }
 
@@ -51,9 +51,12 @@ public sealed class Plugin : BasePlugin
     internal static ConfigEntry<bool> EyeOfOdinFallback { get; private set; }
     internal static ConfigEntry<float> EyeOfOdinStandOffDistance { get; private set; }
 
+    // UI: the manual cleanup button and its saved visibility toggle.
+    internal static ConfigEntry<bool> ShowCleanupButton { get; private set; }
+    internal static ConfigEntry<KeyCode> CleanupButtonToggleKey { get; private set; }
+
     // Debug: test tools, off for normal play.
     internal static ConfigEntry<bool> ForceEyeOfOdinDrops { get; private set; }
-    internal static ConfigEntry<bool> ShowCleanupButton { get; private set; }
     internal static ConfigEntry<float> CleanupButtonX { get; private set; }
     internal static ConfigEntry<float> CleanupButtonY { get; private set; }
 
@@ -84,7 +87,7 @@ public sealed class Plugin : BasePlugin
                 $"recheck_seconds={RecheckIntervalSeconds.Value:0.#} add_missing_quests={AddCleanupToStationsWithout.Value} " +
                 $"storage_search_distance={StorageSearchDistance.Value:0.#} " +
                 $"last_resort_drops={EyeOfOdinFallback.Value} force_last_resort={ForceEyeOfOdinDrops.Value} " +
-                $"cleanup_button={ShowCleanupButton.Value}");
+                $"cleanup_button={ShowCleanupButton.Value} cleanup_button_toggle_key={CleanupButtonToggleKey.Value}");
             Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
             Log.LogInfo($"Diagnostic output: {DiagnosticLog.OutputPath}");
         }
@@ -123,8 +126,8 @@ public sealed class Plugin : BasePlugin
             "Also put away a tool the villager has equipped (in hand) when their current job does not need it. " +
             "Never applies to warriors, whose tools can be weapons.");
         KeepCleaningUntilDone = Config.Bind("Cleanup", "KeepCleaningUntilDone", true,
-            "Keep asking a villager to clean up until they carry nothing their job does not need. " +
-            "Vanilla only asks on a job or schedule change, and forgets the request if the run is interrupted.");
+            "After a successful cleanup pass, immediately request the next pass if unneeded items remain. " +
+            "Interrupted or unsuccessful passes fall back to periodic checks with back-off.");
         RecheckIntervalSeconds = Config.Bind("Cleanup", "RecheckIntervalSeconds", 20f,
             "How often every villager is checked for unneeded items. A villager whose cleanup could not " +
             "remove anything is checked less and less often, up to 10 minutes, so nobody loops.");
@@ -149,8 +152,12 @@ public sealed class Plugin : BasePlugin
 
         ForceEyeOfOdinDrops = Config.Bind("Debug", "ForceLastResortDrops", false,
             "TEST ONLY. Skip storage entirely and send every cleaned-up item to the last-resort drop point.");
-        ShowCleanupButton = Config.Bind("Debug", "ShowCleanupButton", false,
-            "Show a 'Clean inventory now' button while a villager's menu is open.");
+        // New section intentionally avoids inheriting the old default-off debug setting.
+        ShowCleanupButton = Config.Bind("UI", "ShowCleanupButton", true,
+            "Show a 'Clean inventory now' button while a villager's menu is open. " +
+            "The toggle hotkey changes this value and saves it for the next launch.");
+        CleanupButtonToggleKey = Config.Bind("UI", "CleanupButtonToggleKey", KeyCode.F7,
+            "Key that shows or hides the cleanup button in game. Set to None to disable the hotkey.");
         CleanupButtonX = Config.Bind("Debug", "CleanupButtonX", 0.5f,
             "Horizontal centre of the button, as a fraction of screen width (0 = left, 1 = right).");
         CleanupButtonY = Config.Bind("Debug", "CleanupButtonY", 0.15f,

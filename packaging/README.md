@@ -22,7 +22,11 @@ their inventory:
   own storage (a workshop's tool storage, a woodcutter's stick pile) only takes
   items that building has a task for, or needs itself.
 - **They keep at it until they are done**, instead of forgetting after one item.
-  They fit it in around their work, as vanilla cleanup does.
+  After a successful pass they immediately request another if unneeded items
+  remain, without waiting for the periodic inventory check. Normal quest
+  priorities still apply. A pass that removes nothing waits longer before retrying.
+- **Clean inventory now:** open a villager's menu to request a cleanup manually.
+  The button is on by default. Press **F7** to show or hide it; your choice is saved.
 - **Last resort only:** if no storage anywhere will take an item, they drop it in
   front of the Eye of Odin, or in front of their outpost if they live at one, so
   you always know where to find it.
@@ -41,11 +45,18 @@ their inventory:
 | Cleanup | `EligibleItemCategories` | `*` | Item categories that may be put away. |
 | Cleanup | `ExcludedItemCategories` | food, water, bags, armor, weapons, torches | Never put away. |
 | Cleanup | `CleanEquippedTools` | `true` | Put away a held tool the job does not need. |
-| Cleanup | `KeepCleaningUntilDone` | `true` | Keep asking until nothing unneeded is left. |
-| Cleanup | `RecheckIntervalSeconds` | `20` | How often villagers are checked. |
+| Cleanup | `KeepCleaningUntilDone` | `true` | Immediately continue successful passes until nothing unneeded is left. |
+| Cleanup | `RecheckIntervalSeconds` | `20` | Background checks and fallback retries; successful passes continue immediately. |
 | Cleanup | `StorageSearchDistance` | `100000` | How far to look for storage. `0` keeps the game's own limit. |
 | LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
 | LastResort | `StandOffDistance` | `4` | Metres in front of the Eye or outpost. |
+| UI | `ShowCleanupButton` | `true` | Show the manual cleanup button in the villager menu. |
+| UI | `CleanupButtonToggleKey` | `F7` | Show/hide button hotkey. `None` disables it. |
+
+F7 saves the button's visibility for future launches and leaves automatic
+cleanup running. Edit the config before launching, or use an in-game config
+editor. When upgrading, the old `[Debug] ShowCleanupButton` setting is ignored;
+the new `[UI]` setting defaults to on.
 
 If villagers put away something you would rather they kept, add its category to
 `ExcludedItemCategories`, for example `Resources/Seeds`.

@@ -1,7 +1,7 @@
 // CleanupButton - a "Clean inventory now" button shown while a villager's menu
 // is open.
 //
-// Role in the larger system: a test tool. Clicking it calls
+// Role in the larger system: a manual cleanup control. Clicking it calls
 // ManualCleanup.Request for the villager the menu is showing, so the cleanup
 // quest starts on demand instead of after a job or schedule change.
 //
@@ -38,6 +38,26 @@ internal static class CleanupButton
     internal static void OnMenuClosed(VillagerMenu menu)
     {
         if (_openMenu != null && menu != null && _openMenu.Pointer == menu.Pointer) _openMenu = null;
+    }
+
+    /// <summary>Reads the visibility hotkey once per frame and saves the new config value.</summary>
+    internal static void Tick()
+    {
+        try
+        {
+            var key = Plugin.CleanupButtonToggleKey.Value;
+            if (key == KeyCode.None || !Input.GetKeyDown(key)) return;
+
+            Plugin.ShowCleanupButton.Value = !Plugin.ShowCleanupButton.Value;
+            Plugin.ShowCleanupButton.ConfigFile.Save();
+            _message = null;
+            DiagnosticLog.Write("cleanup_button_toggled", $"visible={Plugin.ShowCleanupButton.Value} key={key}");
+            Plugin.Log.LogInfo($"Cleanup button {(Plugin.ShowCleanupButton.Value ? "shown" : "hidden")} ({key}).");
+        }
+        catch (Exception exception)
+        {
+            DiagnosticLog.WriteException("cleanup_button_toggle_failed", exception);
+        }
     }
 
     /// <summary>

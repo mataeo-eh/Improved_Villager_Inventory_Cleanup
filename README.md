@@ -5,7 +5,7 @@ does not need: old tools, leftover materials, spare stone. They store it in any
 storage that will take it, and drop it at the Eye of Odin (or their outpost)
 only as a last resort.
 
-> **EXPERIMENTAL (0.6.1).** Published on Thunderstore for wider testing. If you
+> **EXPERIMENTAL (0.6.2).** Published on Thunderstore for wider testing. If you
 > hit a problem, please leave a comment on the Thunderstore page or open an
 > issue here, and say which villager job and which item were involved.
 
@@ -22,10 +22,14 @@ only as a last resort.
   apply to warriors.
 - **Cleanup keeps going until the villager is done.** Vanilla asks for a
   cleanup only on a job or schedule change, and forgets the request as soon as
-  the run ends or is interrupted. The mod re-checks every villager on a timer
-  and asks again while they still carry something unneeded. A villager whose
-  cleanup cannot remove anything is checked less and less often, so nobody
-  loops.
+  the run ends or is interrupted. After a completed pass removes an item (or
+  part of a stack), the mod immediately requests the next pass if unneeded
+  items remain. The villager does not wait for the 20-second inventory sweep.
+  Normal quest priorities still apply. Interrupted passes fall back to the
+  timer; passes that remove nothing back off up to 10 minutes.
+- **A manual cleanup button, on by default.** Open a villager's menu and click
+  "Clean inventory now". Press **F7** to show or hide the button; the choice is
+  saved. Both visibility and the hotkey can be changed in the config.
 - **Storage rules are respected.** A cleaning villager never puts an item into
   a full container, never takes a warehouse slot past its task quantity (0
   means never), and never uses a slot whose task priority is None
@@ -69,20 +73,27 @@ tool the job does not need. The source files' headers explain each piece.
 | Cleanup | `EligibleItemCategories` | `*` | Categories that may be cleaned. `*` means all. |
 | Cleanup | `ExcludedItemCategories` | food, elements, bags, armor, weapons, torches | Never cleaned. |
 | Cleanup | `CleanEquippedTools` | `true` | Clean an equipped tool the job does not need. |
-| Cleanup | `KeepCleaningUntilDone` | `true` | Re-request cleanup while unneeded items remain. |
-| Cleanup | `RecheckIntervalSeconds` | `20` | How often villagers are re-checked. |
+| Cleanup | `KeepCleaningUntilDone` | `true` | Immediately continue successful passes while unneeded items remain. |
+| Cleanup | `RecheckIntervalSeconds` | `20` | Background inventory checks and fallback retries, not the delay between successful passes. |
 | Cleanup | `AddCleanupToStationsWithout` | `true` | Give altar workers, and similar, a cleanup quest. |
 | Cleanup | `StorageSearchDistance` | `100000` | Storage search radius. `0` keeps the game's own. |
 | LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
 | LastResort | `StandOffDistance` | `4` | Metres in front of the Eye or outpost. |
 | Debug | `ForceLastResortDrops` | `false` | Skip storage; send everything to the drop point. |
-| Debug | `ShowCleanupButton` | `false` | "Clean inventory now" button in the villager menu. |
+| UI | `ShowCleanupButton` | `true` | "Clean inventory now" button in the villager menu; F7 saves its visibility. |
+| UI | `CleanupButtonToggleKey` | `F7` | Key that toggles button visibility; `None` disables the hotkey. |
 | Debug | `CleanupButtonX` / `CleanupButtonY` | `0.5` / `0.15` | Button position, as fractions of the screen. |
 
 Category names are matched loosely: `Tools`, `Resources/Stone` and so on, case
 and spaces ignored. The categories seen so far are Tools, Weapons, Armor, Bags,
 Resources (Food, Elements, Wood, Stone, Materials, Seeds, Misc, Junk, Iron,
 Magic) and Blueprints.
+
+The config file is `BepInEx/config/aska.improved.villager.inventory.cleanup.cfg`.
+The old `[Debug] ShowCleanupButton` entry is no longer used; the new `[UI]`
+entry defaults to on when upgrading. Change config values before launching,
+or use a config editor in game. F7 changes only button visibility; automatic
+cleanup continues according to the Cleanup settings.
 
 ## Build and deploy
 
@@ -93,6 +104,12 @@ From the `Aska_Mods` harness:
 ```
 
 `mod.json` targets the `Test_Mods` profile.
+
+The inventory progress regression checks run without the game:
+
+```powershell
+dotnet run --project tests/CleanupProgress.Tests -c Release
+```
 
 ## Diagnostic output
 
@@ -116,6 +133,7 @@ each event means.
 | 0.5.0 | Largely working in-game: automatic cleanup, all item types, altar keepers. Tools were put onto full racks, and warehouse task limits were ignored. |
 | 0.6.0 | Storage rules for space, task quantity and task priority. First Thunderstore release, experimental. **Broke the settlement storage search for all villagers**: Il2CppInterop cannot trampoline `FindStorageToDeposit` or `FindTrashcanToDeposit` (by-ref `Vector3&`/`Single&` parameters). |
 | 0.6.1 | Removes those hooks. Building storages follow their workstation's tasks (a workshop's tool storage took tools it had no task for). |
+| 0.6.2 | Default-on, saved F7 button toggle; successful cleanup passes immediately request the next pass. Partial-stack deposits count as progress; unsuccessful passes back off. In-game validation pending. |
 
 Thunderstore package files (manifest, player-facing README, changelog, icon)
 are in `packaging/`. Remove the experimental notice there, and in this file,

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.2
+
+- The "Clean inventory now" button is on by default. F7 shows or hides it in
+  game and saves your choice. Configure `[UI] ShowCleanupButton` and
+  `CleanupButtonToggleKey` to change visibility or the hotkey.
+- Successful cleanup passes immediately request the next pass while unneeded
+  items remain, instead of waiting for the 20-second inventory check. Partial
+  stack deposits count as progress too. Normal quest priorities still apply.
+- Passes that remove nothing back off; interruptions and job changes do not
+  trigger an immediate restart.
+
 ## 0.6.1
 
 - **Important fix, please update.** 0.6.0 broke the game's settlement-wide

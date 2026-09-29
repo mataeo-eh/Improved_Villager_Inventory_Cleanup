@@ -1,6 +1,31 @@
 # Villager inventory cleanup test
 
-## Test for 0.6.1 (current)
+## Test for 0.6.2 (current)
+
+1. Launch the `Test_Mods` profile and open a villager's menu. The cleanup button
+   should be visible on the first 0.6.2 launch even if the old debug setting was false.
+2. Press F7 once to hide the button, then again to show it. Close the menu and
+   toggle F7; reopen the menu to confirm it also works while the menu is closed.
+   Relaunch with it hidden to check the saved `[UI] ShowCleanupButton` value.
+3. Change `[UI] CleanupButtonToggleKey` to another key before launching (or in
+   a config editor); check that only the new key toggles it. `None` disables it.
+4. Give a worker several unneeded tools and a stack of spare materials. Request
+   cleanup once. After each successful pass, they should start the next without
+   a 10-20 second detour to work. A partial-stack deposit should continue too.
+5. Look for `cleanup_pass_finished progress=True continue_now=True retry_seconds=0`
+   followed promptly by another `cleanup_quest_started` for that villager.
+6. A pass that removes nothing should log `continue_now=False`, with retries
+   backing off to at most 600 seconds. Change job during a pass and check that
+   the old cleanup does not immediately restart. Urgent needs should still win.
+7. Set `KeepCleaningUntilDone=false`, then `EnableImprovedCleanup=false` to check
+   that immediate continuation stops. Restore the defaults afterwards.
+8. Repeat the storage checks below and check normal haulers and voyage crews.
+
+`cleanup_button_toggled` records visibility and the key. `cleanup_pass_finished`
+records completion status, remaining item stacks, progress, and whether the
+next pass was requested immediately. Completed clean inventories need no retry.
+
+## Test for 0.6.1
 
 Repeat the workshop test: give a workshop villager unrelated tools, request
 a cleanup, and check the workshop's tool storage only receives tools the

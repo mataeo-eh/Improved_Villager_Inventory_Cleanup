@@ -22,6 +22,7 @@
     <Reference Include="SandSailorStudio"><HintPath>$(AskaInteropDir)\SandSailorStudio.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(AskaInteropDir)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.IMGUIModule"><HintPath>$(AskaInteropDir)\UnityEngine.IMGUIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(AskaInteropDir)\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Il2Cppmscorlib"><HintPath>$(AskaInteropDir)\Il2Cppmscorlib.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Fusion.Runtime"><HintPath>$(AskaInteropDir)\Fusion.Runtime.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>

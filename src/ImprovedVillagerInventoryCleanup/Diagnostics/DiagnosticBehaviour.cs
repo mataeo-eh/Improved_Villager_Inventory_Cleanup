@@ -19,6 +19,7 @@ public sealed class DiagnosticBehaviour : MonoBehaviour
 
     public void Update()
     {
+        CleanupButton.Tick();
         DiagnosticTracker.SnapshotAll();
         CleanupWatcher.Tick();
         CleanupScheduler.Tick();
