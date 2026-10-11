@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.5
+
+- Fixes the 0.6.4 craftsmen fix, which only covered the first three items on a
+  workshop's task list. Craftsmen now keep any item their station is set to
+  make, so axes, hammers and the rest are no longer dropped at the Eye of Odin
+  and crafted again.
+
 ## 0.6.4
 
 - **Craftsmen no longer craft tools without end.** A villager now keeps an item

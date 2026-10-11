@@ -5,7 +5,7 @@ does not need: old tools, leftover materials, spare stone. They store it in any
 storage that will take it, and drop it at the Eye of Odin (or their outpost)
 only as a last resort.
 
-> **EXPERIMENTAL (0.6.4).** Published on Thunderstore for wider testing. If you
+> **EXPERIMENTAL (0.6.5).** Published on Thunderstore for wider testing. If you
 > hit a problem, please leave a comment on the Thunderstore page or open an
 > issue here, and say which villager job and which item were involved.
 
@@ -149,6 +149,7 @@ each event means.
 | 0.6.2 | Default-on, saved F7 button toggle; successful cleanup passes immediately request the next pass. Partial-stack deposits count as progress; unsuccessful passes back off. In-game validation pending. |
 | 0.6.3 | A pass that removes nothing stops this mod's automatic requests for that villager. A later game or manual cleanup can still run and, if productive, resume prompt continuation. In-game validation pending. |
 | 0.6.4 | Fixes from the 0.6.3 play test: craftsmen keep what their station makes (they crafted tools without end), last-resort drops only at the drop point (tools were dropped at eating places and workstations). In-game validation pending. |
+| 0.6.5 | 0.6.4 test: the drop-point gate ran, but craftsmen still dropped axes and hammers. A crafting task's `priority` is its position in the list, not High/Med/Low/None, so only the first three tasks' products were kept. Position is now ignored. In-game validation pending. |
 
 Thunderstore package files (manifest, player-facing README, changelog, icon)
 are in `packaging/`. Remove the experimental notice there, and in this file,

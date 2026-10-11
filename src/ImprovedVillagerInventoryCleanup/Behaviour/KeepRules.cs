@@ -15,11 +15,18 @@
 //    vanilla.
 //
 //    A crafting task names a blueprint, not the tool: its itemInfo is a
-//    BlueprintInfo whose "result" is the product (read from the interop
-//    assemblies). Both the task's own item and a blueprint's result are
-//    matched. Warehouse tasks (ResourceStorageTaskData) are storage tasks, not
-//    production, and are ignored. A task with priority None is switched off
-//    and does not count.
+//    BlueprintInfo whose "result" is the product (confirmed by the 0.6.4 test
+//    log: "Crude Iron Axe makes=Crude Iron Axe"). Only blueprint tasks count.
+//    A task that names the item itself is a gather quota, an input (a
+//    bloomery's iron ore) or a warehouse slot, and is left to the game's own
+//    "needed at work" test.
+//
+//    A crafting task's "priority" is NOT the High/Med/Low/None setting that
+//    warehouse tasks use. It is the task's position in the station's list
+//    (0, 1, 2 ... 37 in the 0.6.4 log). 0.6.4 treated 3 and above as "None",
+//    so it only kept the products of a station's first three tasks; axes and
+//    hammers sat at positions 15-17 and were still dropped. Position is now
+//    ignored. A task counts when its target quantity is above 0.
 //
 // 2. Temporary holds. When a last-resort drop has to be cancelled (the drop
 //    point cannot be reached, or the game was about to drop the item on the
@@ -40,8 +47,6 @@ namespace ImprovedVillagerInventoryCleanup.Behaviour;
 
 internal static class KeepRules
 {
-    private const int PriorityNone = 3;   // WorkstationTaskPriority.None (High=0, Med=1, Low=2)
-
     // How long a cancelled last-resort drop keeps its item out of cleanup.
     private const float HoldSeconds = 300f;
 
@@ -123,30 +128,28 @@ internal static class KeepRules
             var task = tasks[index];
             if (task == null || !Produces(task, info)) continue;
 
-            // A warehouse slot stores the item; it does not make it.
-            if (task.TryCast<ResourceStorageTaskData>() != null) continue;
-
-            var priority = task.priority;
-            if (priority < 0 || priority >= PriorityNone) continue;
+            // A target of 0 means the station is not asked to make any.
+            var quantity = task.itemInfoQuantity.quantity;
+            if (quantity <= 0) continue;
 
             if (LoggedProducts.Add($"{villager.Pointer}|{info.id}"))
                 DiagnosticLog.Write("station_product_kept",
                     $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(item)} " +
-                    $"station={DiagnosticLog.Quote(workstation.name)} task_priority={priority}");
+                    $"station={DiagnosticLog.Quote(workstation.name)} task_position={task.priority} task_quantity={quantity}");
             return true;
         }
         return false;
     }
 
     /// <summary>
-    /// True when the task makes <paramref name="info"/>: the task names the
-    /// item itself, or names a blueprint whose result is the item.
+    /// True when the task makes <paramref name="info"/>: it names a blueprint
+    /// whose result is the item. A task that names the item itself is a gather
+    /// quota, an input or a storage slot, not production.
     /// </summary>
     private static bool Produces(WorkstationTaskData task, ItemInfo info)
     {
         var taskInfo = task.itemInfoQuantity?.itemInfo;
         if (taskInfo == null) return false;
-        if (taskInfo.id == info.id) return true;
 
         var result = taskInfo.TryCast<BlueprintInfo>()?.result;
         return result != null && result.id == info.id;
