@@ -5,7 +5,7 @@ does not need: old tools, leftover materials, spare stone. They store it in any
 storage that will take it, and drop it at the Eye of Odin (or their outpost)
 only as a last resort.
 
-> **EXPERIMENTAL (0.6.3).** Published on Thunderstore for wider testing. If you
+> **EXPERIMENTAL (0.6.4).** Published on Thunderstore for wider testing. If you
 > hit a problem, please leave a comment on the Thunderstore page or open an
 > issue here, and say which villager job and which item were involved.
 
@@ -44,7 +44,16 @@ only as a last resort.
 - **Last resort: the Eye of Odin.** If no storage anywhere takes the item, the
   villager drops it in front of the Eye of Odin. Villagers who live at an
   outpost drop it in front of their outpost instead.
-- **Altar keepers clean up too.** The fire and air altars (`Praystation`), like
+- **Only there.** The game judges "arrived" by the distance left on the
+  villager's previous walk, checked before the new walk starts, so a villager
+  standing still dropped the item where they stood (eating places,
+  workstations). The mod now gates the drop on the real distance to the drop
+  point (`Patches/DropPointOnlyPatches.cs`, `Behaviour/CleanupWatcher.cs`). A
+  villager who cannot reach it keeps the item.
+- **A villager keeps what their own station makes.** A finished tool that does
+  not fit in the tool storage stays with the craftsman, which is what stops
+  crafting in vanilla. 0.6.3 dropped it at the Eye of Odin, so crafting never
+  stopped (`Behaviour/KeepRules.cs`).- **Altar keepers clean up too.** The fire and air altars (`Praystation`), like
   any station that has no cleanup quest of its own, get the game's standard
   one for their workers.
 - **Karvi voyages are left alone.** A crew whose ship is at sea or deployed on
@@ -79,7 +88,10 @@ tool the job does not need. The source files' headers explain each piece.
 | Cleanup | `AddCleanupToStationsWithout` | `true` | Give altar workers, and similar, a cleanup quest. |
 | Cleanup | `StorageSearchDistance` | `100000` | Storage search radius. `0` keeps the game's own. |
 | LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
+| Cleanup | `KeepItemsOwnStationMakes` | `true` | Keep an item the villager's own station has an active task to make. |
 | LastResort | `StandOffDistance` | `4` | Metres in front of the Eye or outpost. |
+| LastResort | `OnlyDropAtDropPoint` | `true` | Drop only after walking to the Eye or outpost, never on the spot. |
+| LastResort | `DropRadius` | `3` | How close (metres) to the drop point counts as there. |
 | Debug | `ForceLastResortDrops` | `false` | Skip storage; send everything to the drop point. |
 | UI | `ShowCleanupButton` | `true` | "Clean inventory now" button in the villager menu; F7 saves its visibility. |
 | UI | `CleanupButtonToggleKey` | `F7` | Key that toggles button visibility; `None` disables the hotkey. |
@@ -136,6 +148,7 @@ each event means.
 | 0.6.1 | Removes those hooks. Building storages follow their workstation's tasks (a workshop's tool storage took tools it had no task for). |
 | 0.6.2 | Default-on, saved F7 button toggle; successful cleanup passes immediately request the next pass. Partial-stack deposits count as progress; unsuccessful passes back off. In-game validation pending. |
 | 0.6.3 | A pass that removes nothing stops this mod's automatic requests for that villager. A later game or manual cleanup can still run and, if productive, resume prompt continuation. In-game validation pending. |
+| 0.6.4 | Fixes from the 0.6.3 play test: craftsmen keep what their station makes (they crafted tools without end), last-resort drops only at the drop point (tools were dropped at eating places and workstations). In-game validation pending. |
 
 Thunderstore package files (manifest, player-facing README, changelog, icon)
 are in `packaging/`. Remove the experimental notice there, and in this file,

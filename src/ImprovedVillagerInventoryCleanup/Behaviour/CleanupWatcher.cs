@@ -26,8 +26,38 @@
 // Data objects are registered by the CheckItem prefix, i.e. whenever a
 // villager scans their inventory.
 //
-// Depends on: Plugin (config), DropPoint, VoyageGuard, DiagnosticLog,
-// DiagnosticTracker, GameDescribe.
+// Only at the drop point (0.6.4)
+// ------------------------------
+// The 0.6.3 play test had tools dropped at eating places and workstations.
+// Two causes, both read from FSM_CleanupInventory.OnStateUpdate:
+//
+//   1. "Arrived" is not measured to the walk target. While walking to a ground
+//      drop the game drops the item as soon as
+//          aiController.RemainingDistance <= fsm.minimumDistance
+//      and it checks that BEFORE giving the walk order. RemainingDistance is
+//      whatever was left of the villager's previous walk, so a villager who is
+//      standing still (eating, at their station) has "arrived" on the first
+//      tick and drops the item where they stand.
+//   2. A settlement builder with no storage to walk to skips the walk and
+//      drops the item on the spot.
+//
+// The fix runs around every cleanup FSM tick (Patches/DropPointOnlyPatches):
+//
+//   BeforeFsmTick  redirects a ground drop to the drop point straight away,
+//                  then tells the patch which minimumDistance this tick must
+//                  use: one no walk can satisfy while the villager is further
+//                  than LastResort.DropRadius from the drop point, and one
+//                  every walk satisfies once they are inside it. So the true
+//                  distance to the drop point decides, not the stale number.
+//   AfterFsmTick   spots a tick that picked an item but chose neither a
+//                  storage nor a walk target (cause 2) and cancels that drop.
+//
+// A villager who stops moving for StillSeconds on the way is either dropped
+// from where they stand (close enough to count as "at the drop point") or has
+// the drop cancelled and keeps the item (KeepRules.Hold).
+//
+// Depends on: Plugin (config), DropPoint, KeepRules, VoyageGuard,
+// DiagnosticLog, DiagnosticTracker, GameDescribe.
 
 using System;
 using System.Collections.Generic;
@@ -47,6 +77,17 @@ internal static class CleanupWatcher
         // When LastState began, and whether a stall has been reported for it.
         internal float StateSince;
         internal bool StallReported;
+
+        // The villager this entry is filed under in ByVillager (zero if none).
+        internal IntPtr VillagerKey;
+
+        // "Standing still on the way to the drop point" tracking (BeforeFsmTick):
+        // the item being carried, where the villager was when the timer
+        // started, when it started, and when the FSM last ticked for them.
+        internal IntPtr WalkItem;
+        internal UnityEngine.Vector3 StillAnchor;
+        internal float StillSince;
+        internal float LastTickAt;
     }
 
     // A villager holding the same pick, going to the same place, for this long
@@ -54,13 +95,44 @@ internal static class CleanupWatcher
     // next item within about 10 seconds.
     private const float StallSeconds = 30f;
 
+    // The two minimumDistance values BeforeFsmTick hands out. The game drops
+    // the item when RemainingDistance <= minimumDistance, and a remaining
+    // distance is never negative.
+    private const float KeepWalking = -1f;
+    private const float DropNow = float.PositiveInfinity;
+
+    // A villager who moves less than StillMoveMetres for StillSeconds on the
+    // way to the drop point is not going to get any closer.
+    private const float StillMoveMetres = 1f;
+    private const float StillSeconds = 10f;
+
+    // Standing still within this many metres still counts as "at the drop
+    // point" (the 0.6.3 log has a villager stopping 7.8 m from the marker).
+    // Further away, the drop is cancelled instead.
+    private const float StuckDropMetres = 12f;
+
+    // A longer gap than this between two FSM ticks means the cleanup was
+    // interrupted, so the standing-still timer starts again.
+    private const float TickGapSeconds = 2f;
+
     // data pointer -> watched entry. A villager's FSM reuses one data object,
     // so this stays roughly one entry per villager.
     private static readonly Dictionary<IntPtr, Watched> ByPointer = new();
 
+    // villager pointer -> the entry for the data object that villager scanned
+    // with most recently, i.e. the one their current cleanup pass is using.
+    private static readonly Dictionary<IntPtr, Watched> ByVillager = new();
+
+    // Hand-off between BeforeFsmTick and AfterFsmTick, for the one FSM tick in
+    // progress. FSM ticks never nest, and all run on Unity's main thread.
+    private static Watched _tickWatched;
+    private static IntPtr _tickTargetBefore;
+    private static bool _scanRanThisTick;
+
     /// <summary>
-    /// Starts watching a cleanup data object. Cheap when already watched, which
-    /// matters because it is called for every item of every scan.
+    /// Starts watching a cleanup data object, and files it as its villager's
+    /// current one. Cheap when already watched, which matters because it is
+    /// called for every item of every scan.
     /// Called by: CleanupCheckItemBehaviourPatch.Prefix.
     /// </summary>
     /// <param name="data">The villager's cleanup FSM state.</param>
@@ -68,8 +140,157 @@ internal static class CleanupWatcher
     {
         if (data == null) return;
         var key = data.Pointer;
-        if (key == IntPtr.Zero || ByPointer.ContainsKey(key)) return;
-        ByPointer[key] = new Watched { Data = data };
+        if (key == IntPtr.Zero) return;
+
+        // CheckItem only runs while the FSM scans the inventory.
+        _scanRanThisTick = true;
+
+        if (!ByPointer.TryGetValue(key, out var watched))
+        {
+            watched = new Watched { Data = data };
+            ByPointer[key] = watched;
+        }
+
+        try
+        {
+            var villager = data.agent;
+            if (villager == null) return;
+            watched.VillagerKey = villager.Pointer;
+            ByVillager[watched.VillagerKey] = watched;
+        }
+        catch
+        {
+            // An unreadable agent only means the drop-point rules skip this villager.
+        }
+    }
+
+    /// <summary>
+    /// Runs before each cleanup FSM tick for one villager. Redirects a ground
+    /// drop to the drop point, and decides how "arrived" is judged this tick
+    /// (see "Only at the drop point" in the file header).
+    /// Called by: DropPointOnlyPatch.Prefix.
+    /// Calls: TryRedirect, DropPoint.IsMarker, CancelDrop.
+    /// </summary>
+    /// <param name="villager">The villager whose cleanup FSM is about to tick.</param>
+    /// <returns>
+    /// The minimumDistance the FSM must use for this tick (KeepWalking or
+    /// DropNow), or null to leave the game's own value in place.
+    /// </returns>
+    internal static float? BeforeFsmTick(SSSGame.Villager villager)
+    {
+        _tickWatched = null;
+        _tickTargetBefore = IntPtr.Zero;
+        _scanRanThisTick = false;
+
+        if (villager == null || !Plugin.OnlyDropAtDropPoint.Value || !EyeOfOdinEnabled()) return null;
+        if (!ByVillager.TryGetValue(villager.Pointer, out var watched)) return null;
+        if (VoyageGuard.IsExempt(villager)) return null;
+
+        var data = watched.Data;
+        var target = data.workstationTransform;
+        _tickWatched = watched;
+        _tickTargetBefore = target == null ? IntPtr.Zero : target.Pointer;
+
+        var now = UnityEngine.Time.realtimeSinceStartup;
+        var interrupted = now - watched.LastTickAt > TickGapSeconds;
+        watched.LastTickAt = now;
+
+        // Only a ground drop is of interest: an item picked, no storage chosen
+        // for it, and somewhere to walk to.
+        var item = data.itemToDrop;
+        if (item == null || data.interaction != null || target == null) return null;
+
+        TryRedirect(data, villager, target);
+        var marker = data.workstationTransform;
+        if (!DropPoint.IsMarker(marker)) return null;   // no drop point found: vanilla decides
+
+        var position = villager.transform.position;
+        var distance = HorizontalDistance(position, marker.position);
+        if (distance <= Plugin.DropRadius.Value) return DropNow;
+
+        // Still on the way. Restart the standing-still timer whenever the
+        // villager carries a different item, comes back from an interruption,
+        // or has actually moved.
+        var moved = HorizontalDistance(position, watched.StillAnchor) > StillMoveMetres;
+        if (watched.WalkItem != item.Pointer || interrupted || moved)
+        {
+            watched.WalkItem = item.Pointer;
+            watched.StillAnchor = position;
+            watched.StillSince = now;
+            return KeepWalking;
+        }
+        if (now - watched.StillSince < StillSeconds) return KeepWalking;
+
+        // Stood still for too long: they cannot get any closer.
+        watched.WalkItem = IntPtr.Zero;
+        if (distance <= StuckDropMetres)
+        {
+            DiagnosticLog.Write("drop_point_stuck_drop",
+                $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(item)} metres_from_drop_point={distance:0.#}");
+            return DropNow;
+        }
+
+        CancelDrop(data, villager, item, $"drop_point_unreachable metres_from_drop_point={distance:0.#}");
+        return null;
+    }
+
+    /// <summary>
+    /// Runs after each cleanup FSM tick. Cancels a drop the game is about to
+    /// make on the spot: the tick scanned the inventory and picked an item, but
+    /// chose neither a storage nor a new walk target for it.
+    /// Called by: DropPointOnlyPatch.Postfix.
+    /// Calls: DropPoint.IsMarker, CancelDrop.
+    /// </summary>
+    internal static void AfterFsmTick()
+    {
+        var watched = _tickWatched;
+        _tickWatched = null;
+        if (watched == null || !_scanRanThisTick) return;
+
+        var data = watched.Data;
+        var item = data.itemToDrop;
+        if (item == null || data.interaction != null) return;
+
+        // A ground drop the game will walk to always gets a fresh walk target
+        // on the tick that picks the item.
+        var target = data.workstationTransform;
+        var targetAfter = target == null ? IntPtr.Zero : target.Pointer;
+        if (targetAfter != _tickTargetBefore) return;
+
+        // An unchanged target that is not ours was never redirected (no drop
+        // point exists), so that villager is on vanilla rules: leave it.
+        if (target != null && !DropPoint.IsMarker(target)) return;
+
+        CancelDrop(data, data.agent, item, "drop_on_the_spot");
+    }
+
+    /// <summary>
+    /// Calls off the drop of the picked item. With no item and the NO_ITEM
+    /// priority, both of the game's drop states end the cleanup run without
+    /// dropping anything (read from OnStateUpdate). The item is then held for
+    /// a while so the next scan does not pick it straight back up.
+    /// Called by: BeforeFsmTick, AfterFsmTick. Calls: KeepRules.Hold.
+    /// </summary>
+    /// <param name="data">The villager's cleanup FSM state.</param>
+    /// <param name="villager">The villager cleaning up.</param>
+    /// <param name="item">The item that was about to be dropped.</param>
+    /// <param name="reason">Why, for the log.</param>
+    private static void CancelDrop(FSM_CleanupInventory.CleanupInventoryData data, SSSGame.Villager villager,
+        SandSailorStudio.Inventory.Item item, string reason)
+    {
+        KeepRules.Hold(villager, item);
+        data.itemToDrop = null;
+        data.itemToDropPriority = FSM_CleanupInventory.NicePriority.NO_ITEM;
+        DiagnosticLog.Write("drop_cancelled",
+            $"{GameDescribe.Villager(villager)} item={GameDescribe.Item(item)} reason={reason}");
+    }
+
+    /// <summary>Distance between two points ignoring height, in metres.</summary>
+    private static float HorizontalDistance(UnityEngine.Vector3 from, UnityEngine.Vector3 to)
+    {
+        var deltaX = from.x - to.x;
+        var deltaZ = from.z - to.z;
+        return UnityEngine.Mathf.Sqrt(deltaX * deltaX + deltaZ * deltaZ);
     }
 
     /// <summary>
@@ -98,7 +319,14 @@ internal static class CleanupWatcher
         }
 
         if (dead == null) return;
-        foreach (var key in dead) ByPointer.Remove(key);
+        foreach (var key in dead)
+        {
+            // Unfile it from its villager too, unless a newer entry took that place.
+            var watched = ByPointer[key];
+            if (ByVillager.TryGetValue(watched.VillagerKey, out var filed) && ReferenceEquals(filed, watched))
+                ByVillager.Remove(watched.VillagerKey);
+            ByPointer.Remove(key);
+        }
     }
 
     /// <summary>
@@ -121,13 +349,15 @@ internal static class CleanupWatcher
         else if (target != null) outcome = "ground_drop";
         else outcome = "picked";   // item chosen, destination not decided yet
 
-        var redirected = false;
+        // Normally BeforeFsmTick has already redirected; this is the fallback
+        // for a villager it does not cover.
         if (outcome == "ground_drop" && EyeOfOdinEnabled() && !VoyageGuard.IsExempt(villager))
-            redirected = TryRedirect(data, villager, target);
+            TryRedirect(data, villager, target);
 
         // Build the state from the values after any redirect, so a redirect is
         // logged once, not every frame.
         target = data.workstationTransform;
+        var redirected = outcome == "ground_drop" && DropPoint.IsMarker(target);
         var state = $"{outcome}|{item?.Pointer}|{storage?.Pointer}|{target?.Pointer}";
         var now = UnityEngine.Time.realtimeSinceStartup;
         if (state == watched.LastState)

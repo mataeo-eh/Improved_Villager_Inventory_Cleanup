@@ -27,7 +27,7 @@ public sealed class Plugin : BasePlugin
 {
     public const string PluginGuid = "aska.improved.villager.inventory.cleanup";
     public const string PluginName = "Improved Villager Inventory Cleanup";
-    public const string PluginVersion = "0.6.3";
+    public const string PluginVersion = "0.6.4";
 
     internal static new ManualLogSource Log { get; private set; }
 
@@ -46,10 +46,13 @@ public sealed class Plugin : BasePlugin
     internal static ConfigEntry<bool> AddCleanupToStationsWithout { get; private set; }
     internal static ConfigEntry<float> StorageSearchDistance { get; private set; }
     internal static ConfigEntry<bool> AllowGroundDrops { get; private set; }
+    internal static ConfigEntry<bool> KeepOwnStationProducts { get; private set; }
 
     // Last resort: where items go when no storage anywhere will take them.
     internal static ConfigEntry<bool> EyeOfOdinFallback { get; private set; }
     internal static ConfigEntry<float> EyeOfOdinStandOffDistance { get; private set; }
+    internal static ConfigEntry<bool> OnlyDropAtDropPoint { get; private set; }
+    internal static ConfigEntry<float> DropRadius { get; private set; }
 
     // UI: the manual cleanup button and its saved visibility toggle.
     internal static ConfigEntry<bool> ShowCleanupButton { get; private set; }
@@ -87,6 +90,8 @@ public sealed class Plugin : BasePlugin
                 $"recheck_seconds={RecheckIntervalSeconds.Value:0.#} add_missing_quests={AddCleanupToStationsWithout.Value} " +
                 $"storage_search_distance={StorageSearchDistance.Value:0.#} " +
                 $"last_resort_drops={EyeOfOdinFallback.Value} force_last_resort={ForceEyeOfOdinDrops.Value} " +
+                $"only_drop_at_drop_point={OnlyDropAtDropPoint.Value} drop_radius={DropRadius.Value:0.#} " +
+                $"keep_own_station_products={KeepOwnStationProducts.Value} " +
                 $"cleanup_button={ShowCleanupButton.Value} cleanup_button_toggle_key={CleanupButtonToggleKey.Value}");
             Log.LogInfo($"{PluginName} {PluginVersion} loaded.");
             Log.LogInfo($"Diagnostic output: {DiagnosticLog.OutputPath}");
@@ -139,6 +144,10 @@ public sealed class Plugin : BasePlugin
             "default means any storage in the settlement. 0 or less keeps the game's own limit.");
         AllowGroundDrops = Config.Bind("Cleanup", "AllowGroundDrops", true,
             "Allow ground drops during cleanups the game started because of trash.");
+        KeepOwnStationProducts = Config.Bind("Cleanup", "KeepItemsOwnStationMakes", true,
+            "A villager keeps an item their own workstation has an active task to make, such as a tool a " +
+            "craftsman has just finished, as in the unmodded game. Without this a craftsman whose tool " +
+            "storage is full drops each finished tool at the Eye of Odin and crafts another, without end.");
         ItemEligibility.Reload();
         EligibleCategories.SettingChanged += OnCategoriesChanged;
         ExcludedCategories.SettingChanged += OnCategoriesChanged;
@@ -149,6 +158,13 @@ public sealed class Plugin : BasePlugin
         EyeOfOdinStandOffDistance = Config.Bind("LastResort", "StandOffDistance", 4f,
             "How many metres in front of the Eye of Odin (or outpost) villagers stand to drop items. " +
             "Use a negative value if they end up behind it.");
+        OnlyDropAtDropPoint = Config.Bind("LastResort", "OnlyDropAtDropPoint", true,
+            "A last-resort drop only happens once the villager has actually walked to the Eye of Odin (or " +
+            "their outpost). Without this the game can drop the item wherever the villager was standing, " +
+            "such as an eating place or a workstation. A villager who cannot get there keeps the item.");
+        DropRadius = Config.Bind("LastResort", "DropRadius", 3f,
+            "How close (metres) a villager must be to the drop point before dropping an item there. " +
+            "Used when OnlyDropAtDropPoint is on.");
 
         ForceEyeOfOdinDrops = Config.Bind("Debug", "ForceLastResortDrops", false,
             "TEST ONLY. Skip storage entirely and send every cleaned-up item to the last-resort drop point.");

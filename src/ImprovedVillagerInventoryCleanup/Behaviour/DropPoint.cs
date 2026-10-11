@@ -34,6 +34,18 @@ internal static class DropPoint
     // Destinations already logged, to log each once.
     private static readonly HashSet<IntPtr> Logged = new();
 
+    // The transforms of every marker made here, so IsMarker is a quick lookup.
+    private static readonly HashSet<IntPtr> MarkerTransforms = new();
+
+    /// <summary>
+    /// True when <paramref name="transform"/> is one of this mod's drop-point
+    /// markers, as opposed to a walk target the game chose.
+    /// Called by: CleanupWatcher.
+    /// </summary>
+    /// <param name="transform">A cleanup walk target (may be null).</param>
+    internal static bool IsMarker(Transform transform) =>
+        transform != null && MarkerTransforms.Contains(transform.Pointer);
+
     /// <summary>
     /// Returns the marker transform the villager should walk to, or null when
     /// neither an outpost nor the Eye of Odin can be found.
@@ -96,6 +108,7 @@ internal static class DropPoint
             UnityEngine.Object.DontDestroyOnLoad(marker);
             marker.hideFlags = HideFlags.HideAndDontSave;
             MarkerByStructure[key] = marker;
+            MarkerTransforms.Add(marker.transform.Pointer);
         }
         marker.transform.position = standPoint;
 

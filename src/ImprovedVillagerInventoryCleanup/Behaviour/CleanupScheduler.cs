@@ -251,8 +251,10 @@ internal static class CleanupScheduler
     /// <summary>
     /// Lists the eligible items the villager's job does not need, using the
     /// game's own tests. Mirrors the rules in CleanupBehaviourPatches: equipped
-    /// items only count if they are tools (and the villager is not a warrior).
-    /// Called by: CheckVillager.
+    /// items only count if they are tools (and the villager is not a warrior),
+    /// and items KeepRules keeps do not count.
+    /// Called by: CheckVillager, OnCleanupStarted, OnCleanupStopped.
+    /// Calls: ItemEligibility, KeepRules.ShouldKeep.
     /// </summary>
     /// <returns>Names and per-item quantities of unneeded inventory (empty when clean).</returns>
     private static UnneededInventory FindUnneeded(Villager villager, Workstation workstation)
@@ -276,6 +278,11 @@ internal static class CleanupScheduler
 
             if (workstation.IsItemNeededByVillager(info, villager)) continue;
             if (workstation.IsFuelNeededByVillager(info, villager)) continue;
+
+            // Kept by this mod's own rules (own station's product, held item),
+            // so asking for a cleanup because of it would achieve nothing.
+            if (KeepRules.ShouldKeep(villager, item)) continue;
+
             result.Names.Add(info.Name);
             result.Quantities[item.Pointer] = Math.Max(1, item.count);
         }

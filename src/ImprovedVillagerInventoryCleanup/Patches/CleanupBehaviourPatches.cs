@@ -49,8 +49,8 @@
 // it off, a tool (not in the deposit-to-storage tables) would skip straight to
 // "carry to a storage and drop it on the ground next to it".
 //
-// Depends on: HarmonyLib, Plugin (config), ItemEligibility, CleanupScanContext,
-// DiagnosticLog, DiagnosticTracker, GameDescribe.
+// Depends on: HarmonyLib, Plugin (config), ItemEligibility, KeepRules,
+// CleanupScanContext, DiagnosticLog, DiagnosticTracker, GameDescribe.
 
 using System;
 using HarmonyLib;
@@ -229,13 +229,18 @@ internal static class CleanupCheckItemBehaviourPatch
     /// who became a woodcutter with the hammer still in hand.</item>
     /// <item>Anything else (needed at work, bags, quest items...): reject.</item>
     /// </list>
-    /// Called by: Postfix.
+    /// Before any of that, an item KeepRules says to keep is rejected.
+    /// Called by: Postfix. Calls: KeepRules.ShouldKeep.
     /// </summary>
     /// <param name="villager">The villager cleaning up.</param>
     /// <param name="item">The picked item.</param>
     /// <param name="priority">The game's ranking for it.</param>
     private static bool IsAcceptable(SSSGame.Villager villager, Item item, FSM_CleanupInventory.NicePriority priority)
     {
+        // Something the villager's own station makes, or an item whose
+        // last-resort drop was just cancelled, stays with the villager.
+        if (KeepRules.ShouldKeep(villager, item)) return false;
+
         if ((int)priority == 0) return true;
         if (priority != FSM_CleanupInventory.NicePriority.EQUIPPED_EQUIPMENT) return false;
         if (!Plugin.CleanEquippedTools.Value || !ItemEligibility.IsTool(item)) return false;

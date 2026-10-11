@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.4
+
+- **Craftsmen no longer craft tools without end.** A villager now keeps an item
+  their own workstation has an active task to make, as in the unmodded game.
+  Before, a craftsman whose tool storage was full dropped each finished tool at
+  the Eye of Odin and went back to craft another. New setting:
+  `[Cleanup] KeepItemsOwnStationMakes`.
+- **Last-resort drops only happen at the Eye of Odin (or outpost).** The game
+  could drop the item wherever the villager was standing when cleanup started,
+  such as an eating place or a workstation. The villager now has to walk to
+  the drop point first. A villager who cannot get there keeps the item. New
+  settings: `[LastResort] OnlyDropAtDropPoint` and `DropRadius`.
+
 ## 0.6.3
 
 - After a cleanup pass removes nothing, the mod stops automatically requesting

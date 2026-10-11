@@ -29,10 +29,12 @@ their inventory:
   button still work; a later successful pass resumes prompt continuation.
 - **Clean inventory now:** open a villager's menu to request a cleanup manually.
   The button is on by default. Press **F7** to show or hide it; your choice is saved.
-- **Last resort only:** if no storage anywhere will take an item, they drop it in
-  front of the Eye of Odin, or in front of their outpost if they live at one, so
-  you always know where to find it.
-- **Tool in hand:** a tool the villager is holding is put away too, if the new job
+- **Last resort only:** if no storage anywhere will take an item, they walk to
+  the Eye of Odin, or to their outpost if they live at one, and drop it there
+  and nowhere else, so you always know where to find it.
+- **Craftsmen keep what they make.** A finished tool that does not fit in the
+  tool storage stays with the craftsman, which stops the crafting just as it
+  does in the unmodded game.- **Tool in hand:** a tool the villager is holding is put away too, if the new job
   does not need it. This does not apply to warriors.
 - **Fire and air altar keepers** clean up as well.
 - **Karvi crews at sea or deployed on a trip are left completely vanilla.**
@@ -51,7 +53,10 @@ their inventory:
 | Cleanup | `RecheckIntervalSeconds` | `20` | Background checks until a no-progress pass; successful passes continue immediately. |
 | Cleanup | `StorageSearchDistance` | `100000` | How far to look for storage. `0` keeps the game's own limit. |
 | LastResort | `DropAtEyeOfOdinWhenNoStorage` | `true` | Drop at the Eye of Odin or outpost when no storage takes an item. |
+| Cleanup | `KeepItemsOwnStationMakes` | `true` | Keep an item the villager's own station has an active task to make. |
 | LastResort | `StandOffDistance` | `4` | Metres in front of the Eye or outpost. |
+| LastResort | `OnlyDropAtDropPoint` | `true` | Drop only after walking to the Eye or outpost, never on the spot. |
+| LastResort | `DropRadius` | `3` | How close (metres) to the drop point counts as there. |
 | UI | `ShowCleanupButton` | `true` | Show the manual cleanup button in the villager menu. |
 | UI | `CleanupButtonToggleKey` | `F7` | Show/hide button hotkey. `None` disables it. |
 
